@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  validation:
+  pr-validation:
     name: PR validation
     runs-on: ubuntu-latest
     env:
@@ -134,6 +134,13 @@ jobs:
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Run gitleaks scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build validation report
         id: report
         if: always()
@@ -149,6 +156,7 @@ jobs:
           ARCH_EXIT: ${{ steps.architecture.outputs.exit_code }}
           PYTEST_EXIT: ${{ steps.pytest.outputs.exit_code }}
           PIP_AUDIT_EXIT: ${{ steps.pip_audit.outputs.exit_code }}
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           python - <<'PY'
@@ -189,7 +197,16 @@ jobs:
           arch_exit = parse_exit(os.getenv("ARCH_EXIT"))
           pytest_exit = parse_exit(os.getenv("PYTEST_EXIT"))
           pip_audit_exit = parse_exit(os.getenv("PIP_AUDIT_EXIT"))
+          gitleaks_outcome = (os.getenv("GITLEAKS_OUTCOME") or "").strip() or "not-run"
           event_name = os.getenv("EVENT_NAME", "")
+
+          gitleaks_status = {
+              "success": "PASS",
+              "failure": "FAIL",
+              "cancelled": "FAIL",
+              "skipped": "NOT CHECKED",
+              "not-run": "NOT CHECKED",
+          }.get(gitleaks_outcome, "NOT CHECKED")
 
           categories = {
               "Python correctness": (
@@ -208,7 +225,13 @@ jobs:
                   else "PASS"
               ),
               "Contracts and service behavior": status_from_exit(pytest_exit),
-              "Hardware and security": status_from_exit(pip_audit_exit),
+              "Hardware and security": (
+                  "FAIL"
+                  if (pip_audit_exit is not None and pip_audit_exit != 0) or gitleaks_status == "FAIL"
+                  else "NOT CHECKED"
+                  if pip_audit_exit is None and gitleaks_status == "NOT CHECKED"
+                  else "PASS"
+              ),
           }
 
           checks = [
@@ -275,6 +298,13 @@ jobs:
                   "artifacts/pip_audit.log",
                   "",
               ),
+              (
+                  "gitleaks",
+                  gitleaks_status,
+                  "gitleaks/gitleaks-action@v2",
+                  "GitHub Actions logs for gitleaks step",
+                  "Uses pull_request event with read-only token permissions.",
+              ),
           ]
 
           failed_checks = [name for name, status, *_ in checks if status == "FAIL"]
@@ -299,10 +329,13 @@ jobs:
 
           pytest_text = log_text("pytest.log")
           test_counts = "Not determinable"
+          pytest_summary = ""
           for line in reversed(pytest_text.splitlines()):
-              if ("passed" in line or "failed" in line or "skipped" in line) and line.strip().startswith("="):
-                  test_counts = line.strip("= ")
-                  break
+              if "passed" in line or "failed" in line or "skipped" in line:
+                  if line.strip().startswith("="):
+                      pytest_summary = line.strip("= ")
+                      test_counts = pytest_summary
+                      break
 
           pip_audit_text = log_text("pip_audit.log")
           pip_audit_summary = ""
@@ -337,7 +370,7 @@ jobs:
               "Architecture compliance": "Static architecture boundary regression test.",
               "Repository standards": "Branch naming, PR title, and repository-structure validations.",
               "Contracts and service behavior": "Repository pytest suite including contracts/module tests.",
-              "Hardware and security": "Dependency vulnerability scan with pip-audit.",
+              "Hardware and security": "pip-audit and gitleaks checks (no deployments).",
           }
           for category, status in categories.items():
               summary_lines.append(f"| {category} | {status} | {category_details[category]} |")
@@ -407,6 +440,15 @@ jobs:
                   "Dependency vulnerability",
                   pip_audit_summary or "pip-audit reported vulnerabilities.",
                   "Upgrade or constrain vulnerable dependencies, then rerun pip-audit.",
+              )
+
+          if gitleaks_status == "FAIL":
+              add_violation(
+                  "repository",
+                  "N/A",
+                  "Secret scanning",
+                  "gitleaks detected potential secrets.",
+                  "Remove/rotate leaked secrets and rerun validation.",
               )
 
           if violation_count[0] == 0:
