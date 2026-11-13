@@ -26,5 +26,15 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 | 20 | Durability of the audit log | OPEN | In memory, mirrored to logging | FMS |
 | 21 | Configuration update semantics (validation, rollout, rollback) | OPEN | Rejected with a reason | Operations |
 | 22 | Dependency policy (which libraries are approved) | PROPOSED: pydantic only | Enforced by the architecture tests | Team |
+| 23 | Reference navigation controller conventions and normalised parameters: heading zero/rotation relative to local axes, rudder sign, gains and thrust | PROPOSED; production conventions OPEN | Zero controller remains default; no navigation implementation. Explicit mock conversion/sign and parameters only are proposed | Motion, localisation, hardware, system architect |
+| 24 | Persistent motion inhibition, cancellation timing and authority to resume after safe state or fault | OPEN; hardening prerequisite PROPOSED | `safe_stop` emits zero once; an active mission can regenerate a goal. Cancellation only clears the goal. Proposed first PR latches stop/fault inhibition, stops immediately on goal clearing and adds no automatic/remote rearming | Motion, integration, operations, system architect |
+| 25 | Navigation state validity: age/future tolerance, heading/position coherence, uncertainty requirements and clock-failure timestamp policy | OPEN | One state timestamp, no freshness guard. Proposed fixture policy rejects stale/future state; last-validated timestamp for emergency zero is a proposal only, with no delivery or freshness guarantee | Localisation, motion, core, hardware |
+| 26 | Reference-controller arrival semantics and unsupported speed-cap handling | PROPOSED | Default controller always emits zero. Proposed reference stops at/below goal radius and for any supplied speed cap; normalised thrust has no confirmed speed meaning | Motion, mission owners, hardware |
+
+## Navigation milestone proposals
+
+The [design and readiness assessment](NAVIGATION_CONTROLLER_READINESS.md) and [ADR-0007](decisions/ADR-0007-opt-in-local-navigation-controller.md) are PROPOSED, not accepted requirements. Items #4, #5, #11, #12, #14 and #18 remain OPEN. No controller or runtime behaviour was changed by this assessment.
+
+Explicit mock assumptions only: state and target share one consistent local frame; heading conversion and rudder sign are declared by the fixture; state samples are coherent for the scripted test; parameters are test inputs. These assumptions establish no localisation capability, hull dynamics, propulsion mapping or production threshold. Missing speed, geographic position and uncertainty remain unknown. A command-generation test with scripted positions is not evidence that commands caused movement or that zero propulsion physically stops a vessel.
 
 When a decision is made, write an ADR in `decisions/`, update this table, and change the relevant code and tests.
