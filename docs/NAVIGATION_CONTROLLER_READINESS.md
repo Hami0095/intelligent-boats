@@ -3,6 +3,8 @@
 **Status:** PROPOSED; design only, no controller or runtime changes.
 **Reviewed baseline:** `4c24162` (refreshed `origin/main`).
 
+This is the historical assessment of that baseline. The human subsequently accepted ADR-0007 H1-H3 for stop/fault hardening only. The capability and diagnostic sections below describe the pre-hardening code; current stop semantics are documented in `DATA_FLOW.md` and the AI Box module guidance. Navigation implementation and its remaining proposals have not been approved by that subset decision.
+
 Recommendation: close the motion stop/fault-handling gaps before using nonzero output in the assembled runtime. Then add a stateless, explicitly injected local waypoint reference controller. Its initial claim is bounded command generation from declared mock inputs, not physical navigation performance or deployment safety. The zero-command controller remains the default.
 
 ## 1. Existing capabilities and limitations
