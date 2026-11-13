@@ -13,7 +13,7 @@ from ai_box.core.geometry import LocalPoint
 
 
 class ObservationKind(str, Enum):
-    VISITED = "visited"    # the boat was at this point
+    VISITED = "visited"  # the boat was at this point
     SEARCHED = "searched"  # a search sensor covered this point (sensor coverage model is OPEN)
     OBSERVED = "observed"  # something of interest was seen here; does not change search status
 

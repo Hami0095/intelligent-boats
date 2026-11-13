@@ -12,9 +12,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel
-
 from marine_contracts import MessageType
+from pydantic import BaseModel
 
 log = logging.getLogger("ai_box.events")
 

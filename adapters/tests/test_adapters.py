@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 import pytest
-
 from adapters.fms.loopback import LoopbackFmsLink
 from adapters.propulsion.mock import MockPropulsionSink
 from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
@@ -41,9 +40,13 @@ def test_mock_propulsion_records_normalised_commands_in_order():
 
 def test_loopback_link_simulates_disconnection():
     link = LoopbackFmsLink(server=lambda env: [])
-    env = make_envelope(boat_id="boat-01", message_type=MessageType.BOAT_STATE,
-                        payload=BoatStatePayload(operating_mode=OperatingMode.IDLE),
-                        sequence_number=0, timestamp=T0)
+    env = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.BOAT_STATE,
+        payload=BoatStatePayload(operating_mode=OperatingMode.IDLE),
+        sequence_number=0,
+        timestamp=T0,
+    )
     link.set_online(False)
     with pytest.raises(ConnectionError):
         link.send(env)
@@ -52,9 +55,15 @@ def test_loopback_link_simulates_disconnection():
 
 
 def test_loopback_link_returns_server_replies_once():
-    replies = [make_envelope(boat_id="boat-01", message_type=MessageType.BOAT_STATE,
-                             payload=BoatStatePayload(operating_mode=OperatingMode.IDLE),
-                             sequence_number=1, timestamp=T0)]
+    replies = [
+        make_envelope(
+            boat_id="boat-01",
+            message_type=MessageType.BOAT_STATE,
+            payload=BoatStatePayload(operating_mode=OperatingMode.IDLE),
+            sequence_number=1,
+            timestamp=T0,
+        )
+    ]
     link = LoopbackFmsLink(server=lambda env: replies)
     link.send(replies[0])
     assert link.receive() == replies

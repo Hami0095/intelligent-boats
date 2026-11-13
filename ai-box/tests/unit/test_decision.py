@@ -15,8 +15,11 @@ AREA = GRID.regions_in(SearchArea(0.0, 0.0, 20.0, 20.0))
 def _knowledge(*observations):
     knowledge = InMemoryEnvironmentKnowledge(GRID)
     for kind, point in observations:
-        knowledge.record(EnvironmentObservation(kind=kind, point=point, timestamp=T0,
-                                                provenance=Provenance(source="test"), confidence=1.0))
+        knowledge.record(
+            EnvironmentObservation(
+                kind=kind, point=point, timestamp=T0, provenance=Provenance(source="test"), confidence=1.0
+            )
+        )
     return knowledge
 
 
@@ -25,8 +28,7 @@ def _state(position, safe=True):
 
 
 def test_policy_declines_when_safety_is_not_clear():
-    intent = UnsearchedRegionPolicy().next_intent(_state(LocalPoint(5, 5), safe=False),
-                                                  _knowledge(), GRID)
+    intent = UnsearchedRegionPolicy().next_intent(_state(LocalPoint(5, 5), safe=False), _knowledge(), GRID)
     assert intent is None
 
 

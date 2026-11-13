@@ -1,5 +1,4 @@
 import pytest
-
 from ai_box.config.settings import AIBoxConfig
 from ai_box.core.app import AIBoxApp
 from ai_box.core.manager import ServiceError, ServiceStartError

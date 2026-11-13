@@ -71,5 +71,5 @@ def _format(ix: int, iy: int) -> RegionId:
 def _parse(region: RegionId) -> tuple[int, int]:
     if not region.startswith(_PREFIX):
         raise ValueError(f"not a grid region id: {region!r}")
-    ix, iy = region[len(_PREFIX):].split(":")
+    ix, iy = region[len(_PREFIX) :].split(":")
     return int(ix), int(iy)

@@ -17,6 +17,18 @@ The full standard is `agents/GIT_AND_PR_STANDARD.md`. In short:
 5. Run `python -m pytest` from the repository root. It must pass.
 6. Open a pull request titled `<scope>: <imperative summary>`, using the template. Get an approval from each module owner. Squash-merge.
 
+## CI quality gates
+
+Every push and pull request runs the repository quality gates defined in `.github/workflows/ci.yml`:
+
+- branch naming and PR title validation
+- Ruff linting and formatting checks
+- mypy type checking
+- pytest with a 90% minimum coverage floor
+- dependency vulnerability and secret scanning
+
+These checks exist to keep the autonomous marine system consistent across modules and to prevent hardware, simulator or secret leakage from leaking into normal CI.
+
 ## Rules that reviewers enforce
 
 - Architecture boundaries are tested in `tests/contracts/test_boundaries.py`. A failing boundary test means the design is being violated; fix the design, not the test.

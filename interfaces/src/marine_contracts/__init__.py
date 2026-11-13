@@ -41,15 +41,16 @@ from marine_contracts.payloads import (
 from marine_contracts.registry import MESSAGE_SPECS, Direction, MessageSpec, MessageType
 
 __all__ = [
+    "MESSAGE_SPECS",
+    "SCHEMA_VERSION",
     "AcknowledgementPayload",
     "BoatStatePayload",
     "ConfigurationUpdatePayload",
     "Direction",
-    "EnvironmentProgressPayload",
     "Envelope",
+    "EnvironmentProgressPayload",
     "GeoPosition",
     "HealthStatus",
-    "MESSAGE_SPECS",
     "MessageSpec",
     "MessageType",
     "MissionAssignmentPayload",
@@ -62,7 +63,6 @@ __all__ = [
     "OperatingMode",
     "OperationalEventPayload",
     "Provenance",
-    "SCHEMA_VERSION",
     "SafeStateAction",
     "SafeStateCommandPayload",
     "ServiceHealthEntry",

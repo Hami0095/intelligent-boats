@@ -19,5 +19,5 @@ class FmsConfig(BaseModel):
 
 def load_config(environ: Mapping[str, str] | None = None) -> FmsConfig:
     source = os.environ if environ is None else environ
-    raw = {k[len(ENV_PREFIX):].lower(): v for k, v in source.items() if k.startswith(ENV_PREFIX)}
+    raw = {k[len(ENV_PREFIX) :].lower(): v for k, v in source.items() if k.startswith(ENV_PREFIX)}
     return FmsConfig.model_validate(raw)

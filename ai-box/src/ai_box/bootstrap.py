@@ -12,7 +12,13 @@ from dataclasses import dataclass
 from ai_box.config.settings import AIBoxConfig
 from ai_box.core.app import AIBoxApp
 from ai_box.core.events import EventBus
-from ai_box.core.ports import FmsLink, ObstacleDetector, PositionSource, PropulsionSink, SensorSource
+from ai_box.core.ports import (
+    FmsLink,
+    ObstacleDetector,
+    PositionSource,
+    PropulsionSink,
+    SensorSource,
+)
 from ai_box.core.state import OperatingState
 from ai_box.decision.mission import SearchMissionService
 from ai_box.decision.policy import ExplorationPolicy, UnsearchedRegionPolicy

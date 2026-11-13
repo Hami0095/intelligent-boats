@@ -12,11 +12,14 @@ from marine_contracts import (
     AcknowledgementPayload,
     Envelope,
     MessageType,
+    MissionAssignmentPayload,
+    MissionCancellationPayload,
     MissionProgressPayload,
     MissionStatus,
     OperatingMode,
     OperationalEventPayload,
     SafeStateAction,
+    SafeStateCommandPayload,
     Severity,
 )
 
@@ -63,6 +66,8 @@ class CommandRouter(Service):
             return
         payload = envelope.typed_payload()
         if envelope.message_type is MessageType.MISSION_ASSIGNMENT:
+            if not isinstance(payload, MissionAssignmentPayload):
+                raise TypeError(f"expected MissionAssignmentPayload, got {type(payload).__name__}")
             assert envelope.mission_id is not None
             reason = self._missions.assign(envelope.mission_id, payload.search_area_id)
             if reason is None:
@@ -73,6 +78,8 @@ class CommandRouter(Service):
                 self._ack(envelope, accepted=False, reason=reason)
                 self._progress(envelope.mission_id, MissionStatus.REJECTED, reason)
         elif envelope.message_type is MessageType.MISSION_CANCELLATION:
+            if not isinstance(payload, MissionCancellationPayload):
+                raise TypeError(f"expected MissionCancellationPayload, got {type(payload).__name__}")
             assert envelope.mission_id is not None
             if self._missions.cancel(envelope.mission_id):
                 self._operating.set_mode(OperatingMode.IDLE)
@@ -83,6 +90,8 @@ class CommandRouter(Service):
         elif envelope.message_type is MessageType.NAVIGATION_GOAL:
             self._ack(envelope, accepted=False, reason=NOT_IMPLEMENTED_NAV)
         elif envelope.message_type is MessageType.SAFE_STATE_COMMAND:
+            if not isinstance(payload, SafeStateCommandPayload):
+                raise TypeError(f"expected SafeStateCommandPayload, got {type(payload).__name__}")
             if payload.action is SafeStateAction.RETURN_HOME:
                 self._ack(envelope, accepted=False, reason=NOT_IMPLEMENTED_RETURN)
                 return

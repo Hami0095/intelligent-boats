@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 import pytest
-
 from ai_box.core.geometry import LocalPoint
 from ai_box.environment.knowledge import InMemoryEnvironmentKnowledge, RegionStatus
 from ai_box.environment.model import GridIndexer, SearchArea

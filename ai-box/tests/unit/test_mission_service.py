@@ -23,10 +23,13 @@ class Harness:
         self.motion = MotionService(self.position, self.sink, HoldPositionController(), clock=lambda: T0)
         self.safe = safe
         self.missions = SearchMissionService(
-            position=self.position, motion=self.motion,
-            knowledge=InMemoryEnvironmentKnowledge(self.grid), indexer=self.grid,
+            position=self.position,
+            motion=self.motion,
+            knowledge=InMemoryEnvironmentKnowledge(self.grid),
+            indexer=self.grid,
             search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
-            policy=UnsearchedRegionPolicy(), mission_memory=MissionMemory(),
+            policy=UnsearchedRegionPolicy(),
+            mission_memory=MissionMemory(),
             safety_clear=lambda: self.safe,
         )
 

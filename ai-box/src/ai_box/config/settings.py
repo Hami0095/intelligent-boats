@@ -9,9 +9,8 @@ import os
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from marine_contracts.envelope import BOAT_ID_PATTERN
+from pydantic import BaseModel, ConfigDict, Field
 
 ENV_PREFIX = "AIBOX_"
 
@@ -29,9 +28,5 @@ class AIBoxConfig(BaseModel):
 
 def load_config(environ: Mapping[str, str] | None = None) -> AIBoxConfig:
     source = os.environ if environ is None else environ
-    raw = {
-        key[len(ENV_PREFIX):].lower(): value
-        for key, value in source.items()
-        if key.startswith(ENV_PREFIX)
-    }
+    raw = {key[len(ENV_PREFIX) :].lower(): value for key, value in source.items() if key.startswith(ENV_PREFIX)}
     return AIBoxConfig.model_validate(raw)

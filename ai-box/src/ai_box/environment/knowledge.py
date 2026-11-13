@@ -15,7 +15,7 @@ from ai_box.memory.persistent import InMemoryStore, PersistentStore
 
 class RegionStatus(str, Enum):
     UNKNOWN = "unknown"
-    VISITED = "visited"    # travelled through, but no search coverage recorded
+    VISITED = "visited"  # travelled through, but no search coverage recorded
     SEARCHED = "searched"
 
 

@@ -14,21 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 for package_src in ("interfaces", "ai-box", "fms", "adapters"):
     sys.path.insert(0, str(ROOT / package_src / "src"))
 
-from adapters.fms.loopback import LoopbackFmsLink  # noqa: E402
-from adapters.propulsion.mock import MockPropulsionSink  # noqa: E402
-from adapters.sensors.mock import MockPositionSource  # noqa: E402
-from ai_box.bootstrap import build_boat  # noqa: E402
-from ai_box.config.settings import AIBoxConfig  # noqa: E402
-from ai_box.core.geometry import LocalPoint  # noqa: E402
-from ai_box.environment.model import SearchArea  # noqa: E402
-from ai_box.motion.commands import VehicleState  # noqa: E402
-from fms.communication.outbox import Outbox  # noqa: E402
-from fms.core.endpoint import FmsEndpoint  # noqa: E402
-from fms.core.fleet import BoatIdentity, FleetRegistry  # noqa: E402
-from fms.data.store import InMemoryFleetStore  # noqa: E402
-from fms.logging.audit import AuditLog  # noqa: E402
-from fms.missions.service import MissionService  # noqa: E402
-from marine_contracts import MessageType, MissionAssignmentPayload  # noqa: E402
+from adapters.fms.loopback import LoopbackFmsLink
+from adapters.propulsion.mock import MockPropulsionSink
+from adapters.sensors.mock import MockPositionSource
+from ai_box.bootstrap import build_boat
+from ai_box.config.settings import AIBoxConfig
+from ai_box.core.geometry import LocalPoint
+from ai_box.environment.model import SearchArea
+from ai_box.motion.commands import VehicleState
+from fms.communication.outbox import Outbox
+from fms.core.endpoint import FmsEndpoint
+from fms.core.fleet import BoatIdentity, FleetRegistry
+from fms.data.store import InMemoryFleetStore
+from fms.logging.audit import AuditLog
+from fms.missions.service import MissionService
+from marine_contracts import MessageType, MissionAssignmentPayload
 
 
 def main() -> None:
@@ -53,18 +53,22 @@ def main() -> None:
     )
     boat.app.start()
     try:
-        fms_missions.assign(boat_id, "demo-mission",
-                            MissionAssignmentPayload(objective="demo search", search_area_id="demo-area"))
+        fms_missions.assign(
+            boat_id, "demo-mission", MissionAssignmentPayload(objective="demo search", search_area_id="demo-area")
+        )
         for envelope in outbox.unacknowledged(boat_id):
             link.deliver([envelope])
 
         for cycle in range(1, 6):
             boat.app.tick()
             if boat.motion.goal is not None:
-                position.set_state(VehicleState(timestamp=datetime.now(timezone.utc),
-                                                local_position=boat.motion.goal.target))
-            print(f"cycle {cycle}: mode={boat.operating.mode.value} goal={boat.motion.goal and boat.motion.goal.goal_id} "
-                  f"thrust={sink.last.thrust if sink.last else None}")
+                position.set_state(
+                    VehicleState(timestamp=datetime.now(timezone.utc), local_position=boat.motion.goal.target)
+                )
+            print(
+                f"cycle {cycle}: mode={boat.operating.mode.value} goal={boat.motion.goal and boat.motion.goal.goal_id} "
+                f"thrust={sink.last.thrust if sink.last else None}"
+            )
     finally:
         boat.app.shutdown()
 

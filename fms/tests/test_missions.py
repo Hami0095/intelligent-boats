@@ -1,7 +1,4 @@
-from datetime import datetime, timezone
-
 import pytest
-
 from fms.communication.outbox import Outbox, OutboxFullError
 from fms.core.fleet import BoatIdentity, FleetRegistry, UnregisteredBoatError
 from fms.missions.service import MissionService

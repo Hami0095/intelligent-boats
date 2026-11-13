@@ -43,8 +43,7 @@ class Envelope(StrictModel):
             raise ValueError(f"schema_version must be MAJOR.MINOR.PATCH, got {value!r}")
         if int(match.group(1)) != SUPPORTED_MAJOR_VERSION:
             raise ValueError(
-                f"unsupported schema major version {match.group(1)}; "
-                f"this build supports {SUPPORTED_MAJOR_VERSION}.x"
+                f"unsupported schema major version {match.group(1)}; this build supports {SUPPORTED_MAJOR_VERSION}.x"
             )
         return value
 
@@ -82,9 +81,7 @@ def make_envelope(
     """Build a valid envelope from a typed payload. The preferred way to create messages."""
     spec = MESSAGE_SPECS[message_type]
     if not isinstance(payload, spec.model):
-        raise TypeError(
-            f"{message_type.value} expects {spec.model.__name__}, got {type(payload).__name__}"
-        )
+        raise TypeError(f"{message_type.value} expects {spec.model.__name__}, got {type(payload).__name__}")
     return Envelope(
         message_id=message_id or uuid4(),
         boat_id=boat_id,

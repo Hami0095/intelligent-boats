@@ -17,8 +17,8 @@ boat = build_boat(
     propulsion=MockPropulsionSink(),
     fms_link=LoopbackFmsLink(server=lambda envelope: []),
 )
-with boat.app:          # starts services in dependency order, stops them in reverse on exit
-    boat.app.tick()     # run one control cycle
+with boat.app:  # starts services in dependency order, stops them in reverse on exit
+    boat.app.tick()  # run one control cycle
     print(boat.app.health_report())
 ```
 

@@ -1,24 +1,28 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
+from adapters.propulsion.mock import MockPropulsionSink
+from adapters.sensors.mock import MockPositionSource
 from ai_box.core.geometry import LocalPoint
 from ai_box.memory.mission import MissionMemory
 from ai_box.memory.records import MemoryRecord
 from ai_box.memory.short_term import ShortTermMemory
 from ai_box.motion.commands import NavigationGoal, PropulsionCommand
 from ai_box.motion.controller import HoldPositionController
-from adapters.propulsion.mock import MockPropulsionSink
-from marine_contracts import Provenance
 from ai_box.motion.service import MotionService
-from adapters.sensors.mock import MockPositionSource
+from marine_contracts import Provenance
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
 
 def _record(key, seconds_ago):
-    return MemoryRecord(key=key, value=1, timestamp=T0 - timedelta(seconds=seconds_ago),
-                        provenance=Provenance(source="test"), confidence=0.5)
+    return MemoryRecord(
+        key=key,
+        value=1,
+        timestamp=T0 - timedelta(seconds=seconds_ago),
+        provenance=Provenance(source="test"),
+        confidence=0.5,
+    )
 
 
 def test_short_term_memory_hides_stale_records():
@@ -38,8 +42,9 @@ def test_short_term_memory_is_bounded_and_drops_oldest():
 
 def test_memory_records_must_be_timestamped_in_utc():
     with pytest.raises(ValueError):
-        MemoryRecord(key="k", value=0, timestamp=datetime(2026, 1, 1),
-                     provenance=Provenance(source="t"), confidence=0.5)
+        MemoryRecord(
+            key="k", value=0, timestamp=datetime(2026, 1, 1), provenance=Provenance(source="t"), confidence=0.5
+        )
 
 
 def test_mission_memory_is_scoped_to_one_mission():

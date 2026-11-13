@@ -2,34 +2,100 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
-    branches: [main]
+    branches: [main, master, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
-  test:
+  branch-validation:
+    name: Validate branch name
+    if: github.event_name == 'pull_request' || github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check branch naming
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: python scripts/validate_branch_name.py
+
+  pr-title-validation:
+    name: Validate pull request title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python scripts/validate_pr_title.py "$PR_TITLE"
+
+  quality:
+    name: Quality checks
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ['3.10', '3.11']
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-
-      - name: Install packages
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e interfaces -e ai-box -e fms -e adapters pytest
+          python -m pip install -e interfaces -e ai-box -e fms -e adapters
+          python -m pip install ruff mypy pytest pytest-cov pip-audit
+      - name: Validate repository structure
+        run: python scripts/validate_repo_structure.py
+      - name: Lint Python sources
+        run: python -m ruff check .
+      - name: Check formatting
+        run: python -m ruff format --check .
+      - name: Run mypy
+        run: python -m mypy ai-box/src fms/src interfaces/src adapters/src
+      - name: Run pytest with coverage
+        run: >
+          python -m pytest
+          --cov=interfaces/src
+          --cov=ai-box/src
+          --cov=fms/src
+          --cov=adapters/src
+          --cov-report=term-missing
+          --cov-fail-under=90
 
-      - name: Run test suite
-        run: python -m pytest
-
-      - name: Run end-to-end demo
-        run: python scripts/demo_mock_boat.py
+  security:
+    name: Security and dependency checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install security tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e interfaces -e ai-box -e fms -e adapters pip-audit
+      - name: Dependency audit
+        run: python -m pip_audit --desc --progress-spinner off
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate commit message
+        if: github.event_name == 'push'
+        run: git log --format=%B -n 1 HEAD | python scripts/validate_commit_message.py

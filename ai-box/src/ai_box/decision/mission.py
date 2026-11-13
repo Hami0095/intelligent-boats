@@ -99,9 +99,7 @@ class SearchMissionService(Service):
         mission = self._active
         if mission is None:
             return None
-        searched = sum(
-            1 for r in mission.regions if self._knowledge.region(r).status is RegionStatus.SEARCHED
-        )
+        searched = sum(1 for r in mission.regions if self._knowledge.region(r).status is RegionStatus.SEARCHED)
         total = len(mission.regions)
         return EnvironmentProgressPayload(
             searched_region_count=searched,

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from pydantic import BaseModel
-
 from marine_contracts import (
     BoatStatePayload,
     EnvironmentProgressPayload,
@@ -14,6 +12,7 @@ from marine_contracts import (
     ServiceHealthEntry,
     ServiceHealthPayload,
 )
+from pydantic import BaseModel
 
 from ai_box.core.events import FMS_OUTBOUND, Outbound
 from ai_box.core.ports import PositionSource

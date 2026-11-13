@@ -5,14 +5,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from marine_contracts import MessageType
+from marine_contracts import HealthStatus, MessageType
 
 from ai_box.core.events import FMS_OUTBOUND, PERCEPTION_FRAME, SENSOR_SAMPLE, Outbound
 from ai_box.core.ports import Detection, ObstacleDetector, SensorKind, SensorSample
 from ai_box.core.service import Service, ServiceContext
 from ai_box.perception.frames import PerceptionFrame
 from ai_box.perception.summary import to_obstacle_summary
-from marine_contracts import HealthStatus
 
 log = logging.getLogger("ai_box.perception")
 

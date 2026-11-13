@@ -58,8 +58,9 @@ class FmsEndpoint:
             return self._handle_ack(envelope)
 
         if MESSAGE_SPECS[envelope.message_type].direction is not Direction.BOAT_TO_FMS:
-            self._audit.record(self._clock(), "rejected", boat_id,
-                               f"{envelope.message_type.value} is not a boat-originated message")
+            self._audit.record(
+                self._clock(), "rejected", boat_id, f"{envelope.message_type.value} is not a boat-originated message"
+            )
             return []
 
         seen = self._seen[boat_id]
@@ -72,8 +73,9 @@ class FmsEndpoint:
 
         last = self._last_sequence.get(boat_id)
         if last is not None and envelope.sequence_number <= last:
-            self._audit.record(self._clock(), "out_of_order", boat_id,
-                               f"sequence {envelope.sequence_number} after {last}")
+            self._audit.record(
+                self._clock(), "out_of_order", boat_id, f"sequence {envelope.sequence_number} after {last}"
+            )
         self._last_sequence[boat_id] = max(envelope.sequence_number, last or 0)
 
         now = self._clock()
@@ -88,8 +90,12 @@ class FmsEndpoint:
         assert isinstance(payload, AcknowledgementPayload)
         removed = self._outbox.acknowledge(envelope.boat_id, payload.acknowledged_message_id)
         status = "accepted" if payload.accepted else f"rejected ({payload.reason})"
-        self._audit.record(self._clock(), "ack", envelope.boat_id,
-                           f"{payload.acknowledged_message_id} {status}; queue cleared={removed}")
+        self._audit.record(
+            self._clock(),
+            "ack",
+            envelope.boat_id,
+            f"{payload.acknowledged_message_id} {status}; queue cleared={removed}",
+        )
         return []
 
     def _acknowledge(self, envelope: Envelope) -> Envelope:

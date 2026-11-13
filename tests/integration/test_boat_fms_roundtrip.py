@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
-
 from adapters.fms.loopback import LoopbackFmsLink
 from adapters.propulsion.mock import MockPropulsionSink
 from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
@@ -24,14 +23,14 @@ from fms.logging.audit import AuditLog
 from fms.missions.service import MissionService as FmsMissionService
 from marine_contracts import (
     BoatStatePayload,
-    NavigationGoalPayload,
     GeoPosition,
     MessageType,
-    make_envelope,
     MissionAssignmentPayload,
     MissionStatus,
+    NavigationGoalPayload,
     OperatingMode,
     SafeStateAction,
+    make_envelope,
 )
 
 NOW = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
@@ -50,8 +49,13 @@ def world():
 
     link = LoopbackFmsLink(server=endpoint.receive)
     position = MockPositionSource()
-    position.set_state(VehicleState(timestamp=NOW, local_position=LocalPoint(5.0, 5.0),
-                                    geo_position=GeoPosition(latitude_deg=59.3, longitude_deg=18.0)))
+    position.set_state(
+        VehicleState(
+            timestamp=NOW,
+            local_position=LocalPoint(5.0, 5.0),
+            geo_position=GeoPosition(latitude_deg=59.3, longitude_deg=18.0),
+        )
+    )
     sink = MockPropulsionSink()
     runtime = build_boat(
         AIBoxConfig(boat_id=BOAT, outbound_buffer_limit=50),
@@ -61,9 +65,18 @@ def world():
         search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
     )
     runtime.app.start()
-    yield SimpleNamespace(runtime=runtime, store=store, audit=audit, outbox=outbox,
-                          endpoint=endpoint, link=link, position=position, sink=sink,
-                          fms_missions=fms_missions, registry=registry)
+    yield SimpleNamespace(
+        runtime=runtime,
+        store=store,
+        audit=audit,
+        outbox=outbox,
+        endpoint=endpoint,
+        link=link,
+        position=position,
+        sink=sink,
+        fms_missions=fms_missions,
+        registry=registry,
+    )
     runtime.app.shutdown()
 
 
