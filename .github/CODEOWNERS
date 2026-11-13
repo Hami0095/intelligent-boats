@@ -1,32 +1,5 @@
-# Code owners are requested for review automatically.
-# Replace each placeholder with the real GitHub team or user handle before enabling branch protection.
-# Format: <path> <@owner>
+# Sole code owner for all repository files, including this CODEOWNERS file.
+* @Hami0095
 
-# Shared contracts and architecture: system architect
-/interfaces/              # @TODO-system-architect
-/docs/                    # @TODO-system-architect
-/tests/contracts/         # @TODO-system-architect
-/CLAUDE.md                # @TODO-system-architect
-/AGENTS.md                # @TODO-system-architect
-
-# AI Box
-/ai-box/src/ai_box/perception/      # @TODO-perception-engineer
-/ai-box/src/ai_box/environment/     # @TODO-environment-engineer
-/ai-box/src/ai_box/memory/          # @TODO-environment-engineer
-/ai-box/src/ai_box/decision/        # @TODO-environment-engineer
-/ai-box/src/ai_box/motion/          # @TODO-motion-engineer
-/ai-box/src/ai_box/core/            # @TODO-integration-engineer
-/ai-box/src/ai_box/services/        # @TODO-integration-engineer
-/ai-box/src/ai_box/bootstrap.py     # @TODO-integration-engineer
-
-# FMS and communications
-/fms/                     # @TODO-communications-engineer
-
-# Adapters
-/adapters/                # @TODO-integration-engineer
-/adapters/src/adapters/fms/  # @TODO-communications-engineer
-
-# Agent and repository standards
-/agents/                  # @TODO-system-architect
-/.claude/                 # @TODO-system-architect
-/.github/                 # @TODO-system-architect
+# Explicit self-ownership for this file.
+/.github/CODEOWNERS @Hami0095

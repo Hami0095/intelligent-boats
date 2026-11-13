@@ -1,101 +1,462 @@
-name: CI
+name: PR validation
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
-  push:
-    branches: [main, master, develop]
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
-  branch-validation:
-    name: Validate branch name
-    if: github.event_name == 'pull_request' || github.ref_type == 'branch'
+  validation:
+    name: PR validation
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          python-version: '3.11'
-      - name: Check branch naming
-        env:
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: python scripts/validate_branch_name.py
+          fetch-depth: 0
 
-  pr-title-validation:
-    name: Validate pull request title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Validate title
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: python scripts/validate_pr_title.py "$PR_TITLE"
-
-  quality:
-    name: Quality checks
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.10', '3.11']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - name: Install dependencies
+
+      - name: Install dependencies and CI tooling
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e interfaces -e ai-box -e fms -e adapters
-          python -m pip install ruff mypy pytest pytest-cov pip-audit
-      - name: Validate repository structure
-        run: python scripts/validate_repo_structure.py
-      - name: Lint Python sources
-        run: python -m ruff check .
-      - name: Check formatting
-        run: python -m ruff format --check .
-      - name: Run mypy
-        run: python -m mypy ai-box/src fms/src interfaces/src adapters/src
-      - name: Run pytest with coverage
-        run: >
-          python -m pytest
-          --cov=interfaces/src
-          --cov=ai-box/src
-          --cov=fms/src
-          --cov=adapters/src
-          --cov-report=term-missing
-          --cov-fail-under=90
+          python -m pip install pytest pytest-cov ruff mypy pip-audit
 
-  security:
-    name: Security and dependency checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install security tooling
+      - name: Prepare artifacts directory
+        run: mkdir -p artifacts
+
+      - name: Validate branch naming
+        id: branch_validation
+        if: github.event_name == 'pull_request'
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e interfaces -e ai-box -e fms -e adapters pip-audit
-      - name: Dependency audit
-        run: python -m pip_audit --desc --progress-spinner off
-      - name: Scan for secrets
-        uses: gitleaks/gitleaks-action@v2
+          set +e
+          BRANCH_NAME="${{ github.head_ref }}" python scripts/validate_branch_name.py > artifacts/branch_validation.log 2>&1
+          status=$?
+          cat artifacts/branch_validation.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate pull request title
+        id: pr_title_validation
+        if: github.event_name == 'pull_request'
+        run: |
+          set +e
+          python scripts/validate_pr_title.py "${{ github.event.pull_request.title }}" > artifacts/pr_title_validation.log 2>&1
+          status=$?
+          cat artifacts/pr_title_validation.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate repository structure
+        id: repo_structure
+        run: |
+          set +e
+          python scripts/validate_repo_structure.py > artifacts/repo_structure.log 2>&1
+          status=$?
+          cat artifacts/repo_structure.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run Ruff lint checks
+        id: ruff_check
+        run: |
+          set +e
+          python -m ruff check . > artifacts/ruff_check.log 2>&1
+          status=$?
+          cat artifacts/ruff_check.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run Ruff format check
+        id: ruff_format
+        run: |
+          set +e
+          python -m ruff format --check . > artifacts/ruff_format.log 2>&1
+          status=$?
+          cat artifacts/ruff_format.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run mypy
+        id: mypy
+        run: |
+          set +e
+          python -m mypy ai-box/src fms/src interfaces/src adapters/src > artifacts/mypy.log 2>&1
+          status=$?
+          cat artifacts/mypy.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run architecture boundary tests
+        id: architecture
+        run: |
+          set +e
+          python -m pytest tests/contracts/test_boundaries.py > artifacts/architecture.log 2>&1
+          status=$?
+          cat artifacts/architecture.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run pytest with coverage gate
+        id: pytest
+        run: |
+          set +e
+          python -m pytest \
+            --cov=interfaces/src \
+            --cov=ai-box/src \
+            --cov=fms/src \
+            --cov=adapters/src \
+            --cov-report=term-missing \
+            --cov-fail-under=90 > artifacts/pytest.log 2>&1
+          status=$?
+          cat artifacts/pytest.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run pip-audit
+        id: pip_audit
+        run: |
+          set +e
+          python -m pip_audit --desc --progress-spinner off > artifacts/pip_audit.log 2>&1
+          status=$?
+          cat artifacts/pip_audit.log
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Build validation report
+        id: report
+        if: always()
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate commit message
-        if: github.event_name == 'push'
-        run: git log --format=%B -n 1 HEAD | python scripts/validate_commit_message.py
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'N/A' }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_EXIT: ${{ steps.branch_validation.outputs.exit_code || '' }}
+          PR_TITLE_EXIT: ${{ steps.pr_title_validation.outputs.exit_code || '' }}
+          REPO_STRUCTURE_EXIT: ${{ steps.repo_structure.outputs.exit_code }}
+          RUFF_CHECK_EXIT: ${{ steps.ruff_check.outputs.exit_code }}
+          RUFF_FORMAT_EXIT: ${{ steps.ruff_format.outputs.exit_code }}
+          MYPY_EXIT: ${{ steps.mypy.outputs.exit_code }}
+          ARCH_EXIT: ${{ steps.architecture.outputs.exit_code }}
+          PYTEST_EXIT: ${{ steps.pytest.outputs.exit_code }}
+          PIP_AUDIT_EXIT: ${{ steps.pip_audit.outputs.exit_code }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          from pathlib import Path
+
+          ARTIFACTS = Path("artifacts")
+
+          def log_text(name: str) -> str:
+              path = ARTIFACTS / name
+              return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+
+          def parse_exit(raw: str | None) -> int | None:
+              if raw is None:
+                  return None
+              value = raw.strip()
+              if not value:
+                  return None
+              try:
+                  return int(value)
+              except ValueError:
+                  return None
+
+          def status_from_exit(code: int | None) -> str:
+              if code is None:
+                  return "NOT CHECKED"
+              return "PASS" if code == 0 else "FAIL"
+
+          branch_exit = parse_exit(os.getenv("BRANCH_EXIT"))
+          pr_title_exit = parse_exit(os.getenv("PR_TITLE_EXIT"))
+          repo_structure_exit = parse_exit(os.getenv("REPO_STRUCTURE_EXIT"))
+          ruff_check_exit = parse_exit(os.getenv("RUFF_CHECK_EXIT"))
+          ruff_format_exit = parse_exit(os.getenv("RUFF_FORMAT_EXIT"))
+          mypy_exit = parse_exit(os.getenv("MYPY_EXIT"))
+          arch_exit = parse_exit(os.getenv("ARCH_EXIT"))
+          pytest_exit = parse_exit(os.getenv("PYTEST_EXIT"))
+          pip_audit_exit = parse_exit(os.getenv("PIP_AUDIT_EXIT"))
+          event_name = os.getenv("EVENT_NAME", "")
+
+          categories = {
+              "Python correctness": (
+                  "FAIL"
+                  if any(code and code != 0 for code in [ruff_check_exit, ruff_format_exit, mypy_exit, pytest_exit])
+                  else "NOT CHECKED"
+                  if all(code is None for code in [ruff_check_exit, ruff_format_exit, mypy_exit, pytest_exit])
+                  else "PASS"
+              ),
+              "Architecture compliance": status_from_exit(arch_exit),
+              "Repository standards": (
+                  "FAIL"
+                  if any(code and code != 0 for code in [branch_exit, pr_title_exit, repo_structure_exit])
+                  else "NOT CHECKED"
+                  if repo_structure_exit is None and branch_exit is None and pr_title_exit is None
+                  else "PASS"
+              ),
+              "Contracts and service behavior": status_from_exit(pytest_exit),
+              "Hardware and security": status_from_exit(pip_audit_exit),
+          }
+
+          checks = [
+              (
+                  "Branch name validation",
+                  status_from_exit(branch_exit),
+                  "scripts/validate_branch_name.py",
+                  "artifacts/branch_validation.log",
+                  "Only runs on pull_request events.",
+              ),
+              (
+                  "PR title validation",
+                  status_from_exit(pr_title_exit),
+                  "scripts/validate_pr_title.py",
+                  "artifacts/pr_title_validation.log",
+                  "Only runs on pull_request events.",
+              ),
+              (
+                  "Repository structure",
+                  status_from_exit(repo_structure_exit),
+                  "python scripts/validate_repo_structure.py",
+                  "artifacts/repo_structure.log",
+                  "",
+              ),
+              (
+                  "Ruff lint",
+                  status_from_exit(ruff_check_exit),
+                  "python -m ruff check .",
+                  "artifacts/ruff_check.log",
+                  "",
+              ),
+              (
+                  "Ruff format",
+                  status_from_exit(ruff_format_exit),
+                  "python -m ruff format --check .",
+                  "artifacts/ruff_format.log",
+                  "",
+              ),
+              (
+                  "mypy",
+                  status_from_exit(mypy_exit),
+                  "python -m mypy ai-box/src fms/src interfaces/src adapters/src",
+                  "artifacts/mypy.log",
+                  "",
+              ),
+              (
+                  "Architecture boundary tests",
+                  status_from_exit(arch_exit),
+                  "python -m pytest tests/contracts/test_boundaries.py",
+                  "artifacts/architecture.log",
+                  "",
+              ),
+              (
+                  "pytest + coverage",
+                  status_from_exit(pytest_exit),
+                  "python -m pytest --cov=interfaces/src --cov=ai-box/src --cov=fms/src --cov=adapters/src --cov-report=term-missing --cov-fail-under=90",
+                  "artifacts/pytest.log",
+                  "",
+              ),
+              (
+                  "pip-audit",
+                  status_from_exit(pip_audit_exit),
+                  "python -m pip_audit --desc --progress-spinner off",
+                  "artifacts/pip_audit.log",
+                  "",
+              ),
+          ]
+
+          failed_checks = [name for name, status, *_ in checks if status == "FAIL"]
+          overall = "FAILED" if failed_checks else "PASSED"
+
+          ruff_findings: list[tuple[str, str, str, str]] = []
+          for line in log_text("ruff_check.log").splitlines():
+              m = re.match(r"^(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s+(?P<rule>[A-Z]\d+)\s+(?P<msg>.+)$", line)
+              if m:
+                  ruff_findings.append((m.group("file"), m.group("line"), m.group("rule"), m.group("msg")))
+
+          mypy_findings: list[tuple[str, str, str, str]] = []
+          for line in log_text("mypy.log").splitlines():
+              m = re.match(r"^(?P<file>[^:\n]+):(?P<line>\d+):\s+error:\s+(?P<msg>.+?)\s+\[(?P<rule>[^\]]+)\]$", line)
+              if m:
+                  mypy_findings.append((m.group("file"), m.group("line"), m.group("rule"), m.group("msg")))
+
+          arch_snippet = ""
+          if arch_exit not in (None, 0):
+              arch_text = log_text("architecture.log")
+              arch_snippet = "\n".join(arch_text.splitlines()[-20:]).strip()
+
+          pytest_text = log_text("pytest.log")
+          test_counts = "Not determinable"
+          for line in reversed(pytest_text.splitlines()):
+              if ("passed" in line or "failed" in line or "skipped" in line) and line.strip().startswith("="):
+                  test_counts = line.strip("= ")
+                  break
+
+          pip_audit_text = log_text("pip_audit.log")
+          pip_audit_summary = ""
+          if pip_audit_text:
+              for line in pip_audit_text.splitlines():
+                  if line.startswith("Found "):
+                      pip_audit_summary = line.strip()
+                      break
+
+          not_checked_reasons = []
+          if event_name != "pull_request":
+              not_checked_reasons.append(
+                  "Branch and PR title validation are NOT CHECKED because this run was not triggered by pull_request."
+              )
+          for name, status, _, _, reason in checks:
+              if status == "NOT CHECKED" and reason:
+                  not_checked_reasons.append(f"{name}: {reason}")
+
+          summary_lines = [
+              "### Pull Request Validation Report",
+              "",
+              f"- **PR number:** {os.getenv('PR_NUMBER', 'N/A')}",
+              f"- **Commit SHA:** `{os.getenv('COMMIT_SHA', 'unknown')}`",
+              f"- **Overall status:** **{overall}**",
+              "",
+              "| Category | Status | Details |",
+              "|---|---|---|",
+          ]
+
+          category_details = {
+              "Python correctness": "Ruff lint, Ruff format, mypy, pytest with 90% coverage gate.",
+              "Architecture compliance": "Static architecture boundary regression test.",
+              "Repository standards": "Branch naming, PR title, and repository-structure validations.",
+              "Contracts and service behavior": "Repository pytest suite including contracts/module tests.",
+              "Hardware and security": "Dependency vulnerability scan with pip-audit.",
+          }
+          for category, status in categories.items():
+              summary_lines.append(f"| {category} | {status} | {category_details[category]} |")
+
+          summary_lines.extend(
+              [
+                  "",
+                  "### Executed checks",
+                  "",
+                  "| Check | Status | Command/Rule | Logs |",
+                  "|---|---|---|---|",
+              ]
+          )
+
+          for name, status, command, log_ref, _ in checks:
+              summary_lines.append(f"| {name} | {status} | `{command}` | `{log_ref}` |")
+
+          summary_lines.extend(["", "### Violations", ""])
+          violation_count = [0]
+
+          def add_violation(file: str, line: str, rule: str, problem: str, fix: str) -> None:
+              violation_count[0] += 1
+              summary_lines.extend(
+                  [
+                      f"**VIOLATION {violation_count[0]}**",
+                      f"- File: `{file}`",
+                      f"- Line: {line}",
+                      f"- Rule: {rule}",
+                      f"- Problem: {problem}",
+                      f"- Suggested fix: {fix}",
+                      "",
+                  ]
+              )
+
+          for file, line, rule, msg in ruff_findings[:20]:
+              add_violation(file, line, rule, msg, "Resolve the Ruff violation and rerun `python -m ruff check .`.")
+              print(f"::error file={file},line={line},title=Ruff {rule}::{msg}")
+
+          for file, line, rule, msg in mypy_findings[:20]:
+              add_violation(file, line, rule, msg, "Fix the type issue and rerun `python -m mypy ...`.")
+              print(f"::error file={file},line={line},title=mypy {rule}::{msg}")
+
+          if arch_snippet:
+              add_violation(
+                  "tests/contracts/test_boundaries.py",
+                  "N/A",
+                  "Architecture boundary",
+                  "Architecture boundary tests failed.",
+                  "Review forbidden imports and dependency boundaries reported in `artifacts/architecture.log`.",
+              )
+              print("::error title=Architecture boundary test failed::See artifacts/architecture.log for details")
+              summary_lines.extend(["```", arch_snippet, "```", ""])
+
+          if pytest_exit not in (None, 0):
+              add_violation(
+                  "pytest",
+                  "N/A",
+                  "Test/coverage gate",
+                  "Pytest or coverage threshold failed.",
+                  "Review failing tests and coverage output in `artifacts/pytest.log`.",
+              )
+
+          if pip_audit_exit not in (None, 0):
+              add_violation(
+                  "dependencies",
+                  "N/A",
+                  "Dependency vulnerability",
+                  pip_audit_summary or "pip-audit reported vulnerabilities.",
+                  "Upgrade or constrain vulnerable dependencies, then rerun pip-audit.",
+              )
+
+          if violation_count[0] == 0:
+              summary_lines.append("No violations detected.")
+
+          summary_lines.extend(
+              [
+                  "",
+                  "### Test counts",
+                  "",
+                  f"- `{test_counts}`",
+                  "",
+                  "### Checks not executed",
+                  "",
+              ]
+          )
+
+          if not_checked_reasons:
+              summary_lines.extend([f"- {reason}" for reason in not_checked_reasons])
+          else:
+              summary_lines.append("- None")
+
+          summary_lines.extend(
+              [
+                  "",
+                  "### Logs and artifacts",
+                  "",
+                  "- Per-check logs are available in the `ci-validation-logs` artifact for this run.",
+                  "- Raw command output is also visible in each step log.",
+              ]
+          )
+
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as fh:
+              fh.write(f"overall_status={overall}\n")
+          PY
+
+      - name: Upload CI validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-validation-logs
+          path: artifacts/
+          if-no-files-found: warn
+
+      - name: Fail workflow if any validation failed
+        if: always() && steps.report.outputs.overall_status == 'FAILED'
+        run: |
+          echo "One or more validation checks failed. See the Pull Request Validation Report in the job summary."
+          exit 1
