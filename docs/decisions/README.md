@@ -11,3 +11,4 @@ Format: one file per decision, named `ADR-NNNN-short-title.md`. Each record has:
 | [0005](ADR-0005-python-first-and-minimal-dependencies.md) | Python-first with minimal dependencies | ACCEPTED |
 | [0006](ADR-0006-transport-and-storage-undecided.md) | Transport and storage are undecided | PROPOSED |
 | [0007](ADR-0007-opt-in-local-navigation-controller.md) | Opt-in local navigation reference controller | PROPOSED |
+| [0008](ADR-0008-typed-environment-observation-ingress.md) | Typed environment-observation ingress | PROPOSED |

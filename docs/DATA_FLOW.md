@@ -33,9 +33,11 @@ Failed zero application produces a rejected acknowledgement with a reason; cance
 3. `perception` runs the detector on collision-relevant samples (camera frames and range data) and publishes a `PerceptionFrame`.
 4. If there are detections, `perception` also sends an `ObstacleSummaryPayload` to the FMS, with `collision_risk` unset.
 
+There is no current path from `SensorSample` or `Detection` to `EnvironmentObservation`. Sensor sample data is adapter-defined; detections contain relative bearing and optional range, not an approved semantic observation and local point. Collision perception must not be used to infer environment observations or search coverage. The proposed typed ingress and its evidence requirements are tracked in [ADR-0008](decisions/ADR-0008-typed-environment-observation-ingress.md) and open decision 33.
+
 ## 4. Search progress
 
-1. On each active-mission tick, `search-mission` takes the current local position and records a VISITED observation in environment knowledge and mission memory. Visiting a cell never marks it searched. No current service turns sensor samples into SEARCHED or OBSERVED environment observations; the search-coverage model remains OPEN.
+1. On each active-mission tick, `search-mission` takes the current local position and records a VISITED observation in environment knowledge and mission memory. An observation-only region is reported as OBSERVED and remains unsearched; the baseline policy treats it like UNKNOWN when preferring never-visited regions. Visiting a cell never marks it searched. No current service turns sensor samples into OBSERVED or SEARCHED environment observations. Evidence and ingress for sensor-derived OBSERVED records remain open (decision 33); the search-coverage model for SEARCHED remains open (decision 7).
 2. The exploration policy reads knowledge and chooses the next target: never-visited regions first, then the nearest, never the current region.
 3. The target becomes a `NavigationGoal` for `motion`. The goal is replaced after the boat enters its acceptance radius.
 4. While a mission is active, `telemetry` obtains the environment summary together with that mission ID and publishes it as an `EnvironmentProgressPayload` in an envelope carrying the same ID. The FMS stores the received envelope and payload by boat and message type; the summary contains counts and coverage, not per-region identifiers. It reports no verified searched coverage until a SEARCHED observation is explicitly recorded, and it does not signal mission completion.

@@ -51,7 +51,7 @@ class UnsearchedRegionPolicy:
             center = indexer.center_of(region_id)
             status = knowledge.region(region_id).status
             key = (
-                0 if status is RegionStatus.UNKNOWN else 1,
+                0 if status in (RegionStatus.UNKNOWN, RegionStatus.OBSERVED) else 1,
                 state.position.distance_to(center),
                 region_id,
             )

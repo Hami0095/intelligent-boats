@@ -10,7 +10,7 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 | 4 | Local frame origin and axes, and the geographic-to-local transform | OPEN | Position is held in local metres; geographic goals are rejected | Motion, localisation |
 | 5 | Position estimation and sensor fusion (GPS, IMU, odometry, camera) | OPEN | Position source is a port; confidence is a fixed placeholder (0.5) | Perception, hardware |
 | 6 | Reward definition and what counts as "found" or "search complete" | OPEN | `RewardSignal` returns no reward; no completion logic | Mission owners |
-| 7 | How search coverage is measured from sensors (sweep model) | OPEN | The mission service records `VISITED` from the position source; no service produces sensor-derived `SEARCHED` or `OBSERVED` environment records, so no region becomes "searched" | Perception, environment |
+| 7 | How search coverage is measured from sensors (sweep model) | OPEN | The mission service records `VISITED` from the position source; no sensor-derived `SEARCHED` records are produced. `SEARCHED` remains distinct from visits and observations; sensor-to-environment ingress is tracked separately in #33 | Perception, environment |
 | 8 | Region partitioning scheme for the environment model | OPEN | `GridIndexer` with a placeholder cell size of 10 m | Environment |
 | 9 | Obstacle tracking across frames | OPEN | Frame-local identifiers only | Perception |
 | 10 | Collision-risk estimation (method, inputs, units) | OPEN | `collision_risk` is always unset | Perception, motion |
@@ -36,6 +36,7 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 | 30 | Whether envelope validation must enforce a zero UTC offset | OPEN | Producers use UTC and naive timestamps are rejected, but the contract currently accepts any timezone-aware offset without normalization | Interfaces, FMS |
 | 31 | Whether loss of FMS communication should trigger a motion safe-state, and what reconnection permits | OPEN | A send failure with buffered output reports degraded bridge health and buffers/drops messages per current rules; the bridge does not maintain an explicit connection state. Link loss does not change motion mode or inhibition. Existing inhibition survives reconnection, but no new loss-triggered stop policy is implemented | Motion, integration, operations |
 | 32 | Whether FMS should deduplicate ACK envelope IDs and reject conflicting reuse | OPEN | Identical repeated ACKs do not change queue state after the first ACK, but ACK envelope IDs are not tracked; a reused ID with a different payload is not detected | FMS, communications |
+| 33 | Typed sensor-to-environment observation ingress and evidence for `OBSERVED` records | OPEN | Sensor samples have adapter-defined generic data, and collision detections do not provide approved semantic or local-point evidence. No sensor sample is converted to an environment observation; see [ADR-0008](decisions/ADR-0008-typed-environment-observation-ingress.md). `SEARCHED` remains governed by #7 | Perception, environment, integration, system architect |
 
 ## Navigation milestone proposals
 
