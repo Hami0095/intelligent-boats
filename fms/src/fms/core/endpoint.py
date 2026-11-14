@@ -40,6 +40,8 @@ class FmsEndpoint:
         dedupe_window: int = 10_000,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
+        if dedupe_window <= 0:
+            raise ValueError("dedupe_window must be positive")
         self._registry = registry
         self._store = store
         self._audit = audit

@@ -63,6 +63,13 @@ def test_identities_must_be_unique_and_required_for_traffic():
         registry.require("boat-02")
 
 
+@pytest.mark.parametrize("window", [0, -1])
+def test_endpoint_rejects_non_positive_dedupe_window(fms, window):
+    registry, store, audit, outbox, _ = fms
+    with pytest.raises(ValueError, match="dedupe_window must be positive"):
+        FmsEndpoint(registry=registry, store=store, audit=audit, outbox=outbox, dedupe_window=window)
+
+
 def test_unknown_boat_is_refused(fms):
     _, store, _, _, endpoint = fms
     stranger = make_envelope(
@@ -104,6 +111,44 @@ def test_duplicate_messages_are_processed_once(fms):
     assert any(e.category == "duplicate" for e in audit.entries())
 
 
+def test_reused_boat_message_id_with_changed_payload_cannot_replace_stored_state(fms):
+    _, store, audit, _, endpoint = fms
+    original = _state()
+    conflicting = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.BOAT_STATE,
+        payload=BoatStatePayload(operating_mode=OperatingMode.SAFE_STATE),
+        sequence_number=original.sequence_number + 1,
+        timestamp=NOW,
+        message_id=original.message_id,
+    )
+
+    endpoint.receive(original)
+    endpoint.receive(conflicting)
+
+    history = store.history("boat-01", MessageType.BOAT_STATE)
+    assert len(history) == 1
+    assert history[0].payload.operating_mode is OperatingMode.IDLE
+    assert any(entry.category == "duplicate" for entry in audit.entries())
+
+
+def test_duplicate_critical_boat_message_is_not_stored_or_acknowledged_again(fms):
+    _, store, audit, _, endpoint = fms
+    progress = _progress()
+
+    first_replies = endpoint.receive(progress)
+    duplicate_replies = endpoint.receive(progress)
+
+    assert len(first_replies) == 1
+    reply_payload = first_replies[0].typed_payload()
+    assert isinstance(reply_payload, AcknowledgementPayload)
+    assert reply_payload.acknowledged_message_id == progress.message_id
+    assert duplicate_replies == []
+    history = store.history("boat-01", MessageType.MISSION_PROGRESS)
+    assert len(history) == 1 and history[0].envelope == progress
+    assert any(entry.category == "duplicate" for entry in audit.entries())
+
+
 def test_out_of_order_messages_are_kept_and_flagged(fms):
     _, store, audit, _, endpoint = fms
     endpoint.receive(_state(seq=5))
@@ -127,8 +172,9 @@ def test_boat_cannot_send_fms_originated_commands(fms):
     assert any(e.category == "rejected" for e in audit.entries())
 
 
-def test_boat_acknowledgement_clears_the_outbox(fms):
-    _, _, _, outbox, endpoint = fms
+@pytest.mark.parametrize(("accepted", "reason"), [(True, None), (False, "not supported")])
+def test_boat_acknowledgement_clears_the_outbox(fms, accepted, reason):
+    _, _, audit, outbox, endpoint = fms
     command = make_envelope(
         boat_id="boat-01",
         message_type=MessageType.MISSION_ASSIGNMENT,
@@ -141,12 +187,143 @@ def test_boat_acknowledgement_clears_the_outbox(fms):
     ack = make_envelope(
         boat_id="boat-01",
         message_type=MessageType.ACKNOWLEDGEMENT,
-        payload=AcknowledgementPayload(acknowledged_message_id=command.message_id, accepted=True),
+        payload=AcknowledgementPayload(acknowledged_message_id=command.message_id, accepted=accepted, reason=reason),
         sequence_number=0,
         timestamp=NOW,
     )
     endpoint.receive(ack)
     assert outbox.unacknowledged("boat-01") == ()
+    result = next(entry.message for entry in audit.entries() if entry.category == "ack")
+    assert str(command.message_id) in result
+    assert ("accepted" if accepted else f"rejected ({reason})") in result
+    assert "queue cleared=True" in result
+
+
+def test_command_remains_pending_until_a_matching_ack_arrives(fms):
+    _, _, _, outbox, endpoint = fms
+    command = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.MISSION_ASSIGNMENT,
+        payload=MissionAssignmentPayload(objective="x", search_area_id="a"),
+        mission_id="m-1",
+        sequence_number=outbox.next_sequence("boat-01"),
+        timestamp=NOW,
+    )
+    outbox.enqueue(command)
+
+    endpoint.receive(_state())
+    assert outbox.unacknowledged("boat-01") == (command,)
+
+    ack = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.ACKNOWLEDGEMENT,
+        payload=AcknowledgementPayload(acknowledged_message_id=command.message_id, accepted=True),
+        sequence_number=1,
+        timestamp=NOW,
+    )
+    endpoint.receive(ack)
+
+    assert outbox.unacknowledged("boat-01") == ()
+
+
+def test_acknowledgement_for_unknown_command_is_audited_without_clearing_pending_command(fms):
+    _, _, audit, outbox, endpoint = fms
+    command = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.MISSION_ASSIGNMENT,
+        payload=MissionAssignmentPayload(objective="x", search_area_id="a"),
+        mission_id="m-1",
+        sequence_number=outbox.next_sequence("boat-01"),
+        timestamp=NOW,
+    )
+    outbox.enqueue(command)
+    unknown_id = uuid4()
+    ack = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.ACKNOWLEDGEMENT,
+        payload=AcknowledgementPayload(acknowledged_message_id=unknown_id, accepted=True),
+        sequence_number=0,
+        timestamp=NOW,
+    )
+
+    endpoint.receive(ack)
+
+    assert outbox.unacknowledged("boat-01") == (command,)
+    assert any(
+        entry.category == "ack" and str(unknown_id) in entry.message and "queue cleared=False" in entry.message
+        for entry in audit.entries()
+    )
+
+
+def test_duplicate_acknowledgement_is_harmless_and_does_not_clear_another_command(fms):
+    _, _, audit, outbox, endpoint = fms
+    first = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.MISSION_ASSIGNMENT,
+        payload=MissionAssignmentPayload(objective="first", search_area_id="a"),
+        mission_id="m-1",
+        sequence_number=outbox.next_sequence("boat-01"),
+        timestamp=NOW,
+    )
+    second = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.MISSION_ASSIGNMENT,
+        payload=MissionAssignmentPayload(objective="second", search_area_id="b"),
+        mission_id="m-2",
+        sequence_number=outbox.next_sequence("boat-01"),
+        timestamp=NOW,
+    )
+    outbox.enqueue(first)
+    outbox.enqueue(second)
+    ack = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.ACKNOWLEDGEMENT,
+        payload=AcknowledgementPayload(acknowledged_message_id=first.message_id, accepted=True),
+        sequence_number=0,
+        timestamp=NOW,
+    )
+
+    endpoint.receive(ack)
+    endpoint.receive(ack)
+
+    assert outbox.unacknowledged("boat-01") == (second,)
+    results = [entry.message for entry in audit.entries() if entry.category == "ack"]
+    assert len(results) == 2
+    assert "queue cleared=True" in results[0]
+    assert "queue cleared=False" in results[1]
+
+
+def test_acknowledgement_from_another_registered_boat_cannot_clear_command(fms):
+    registry, _, audit, outbox, endpoint = fms
+    registry.register(BoatIdentity(boat_id="boat-02", display_name="Bravo"))
+    command = make_envelope(
+        boat_id="boat-01",
+        message_type=MessageType.MISSION_ASSIGNMENT,
+        payload=MissionAssignmentPayload(objective="x", search_area_id="a"),
+        mission_id="m-1",
+        sequence_number=outbox.next_sequence("boat-01"),
+        timestamp=NOW,
+    )
+    outbox.enqueue(command)
+    ack = make_envelope(
+        boat_id="boat-02",
+        message_type=MessageType.ACKNOWLEDGEMENT,
+        payload=AcknowledgementPayload(acknowledged_message_id=command.message_id, accepted=True),
+        sequence_number=0,
+        timestamp=NOW,
+    )
+
+    endpoint.receive(ack)
+
+    assert outbox.unacknowledged("boat-01") == (command,)
+    assert outbox.unacknowledged("boat-02") == ()
+    assert any(
+        entry.category == "ack"
+        and entry.boat_id == "boat-02"
+        and str(command.message_id) in entry.message
+        and "queue cleared=False" in entry.message
+        for entry in audit.entries()
+    )
 
 
 def test_dedupe_window_is_bounded(fms):

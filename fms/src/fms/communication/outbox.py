@@ -32,6 +32,14 @@ class Outbox:
 
     def enqueue(self, envelope: Envelope) -> None:
         queue = self._pending[envelope.boat_id]
+        existing = queue.get(envelope.message_id)
+        if existing is not None:
+            if existing != envelope:
+                raise ValueError(
+                    f"message_id {envelope.message_id} is already queued for {envelope.boat_id!r} "
+                    "with a different envelope"
+                )
+            return
         if len(queue) >= self._limit:
             raise OutboxFullError(f"outbox for {envelope.boat_id!r} is full ({self._limit})")
         queue[envelope.message_id] = envelope
