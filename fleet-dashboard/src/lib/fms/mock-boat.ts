@@ -13,7 +13,7 @@ export class MockBoat {
   searched = 0; known = SEARCH_CELL_COUNT; tracks: ObstacleTrack[] = [];
   coverage = new CoverageSearch();
   delivery: DeliveryState | null = null;
-  private seq = 0; private handled = new Set<string>(); private tick = 0;
+  private seq = 0; private handled = new Set<string>(); private tick = 0; private holdTicks = 0;
   constructor(public id: string, public home: GeoPosition, private recipientPosition: (id: string) => GeoPosition | undefined = () => undefined, private surroundings: () => NavigationObstacle[] = () => []) { this.pos = { ...home }; }
 
   private travel(target: GeoPosition, metres: number, geofenced = false) {
@@ -87,6 +87,13 @@ export class MockBoat {
       this.mission.fraction = this.searched / this.known;
       if (this.tick % 3 === 0)
         out.push(this.env("mission_progress", { status: "in_progress", completion_fraction: this.mission.fraction, detail: this.speed === 0 ? "Holding; no reachable unsearched target in assigned section" : "Independent recon; targeting fleet-unsearched cells" }, now));
+      // Patrol complete: nothing left to search in this boat's section, so return home.
+      this.holdTicks = this.speed === 0 ? this.holdTicks + 1 : 0;
+      if (this.holdTicks >= 3) {
+        this.holdTicks = 0; this.mission.status = "completed"; this.mode = "returning_home";
+        out.push(this.env("mission_progress", { status: "completed", completion_fraction: this.mission.fraction, detail: "Recon patrol complete; returning home" }, now));
+        out.push(this.env("operational_event", { severity: "info", code: "recon.completed", message: "Recon patrol complete; returning home" }, now));
+      }
     }
     if (this.battery < 0.15 && this.mode === "autonomous") {
       this.mode = "returning_home";

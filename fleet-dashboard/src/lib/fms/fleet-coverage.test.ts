@@ -37,14 +37,16 @@ describe("shared fleet search", () => {
     expect(f.coverage.sections.has("usv-04")).toBe(false);
     expect(f.coverage.sections.get("usv-01")?.size).toBe(SEARCH_CELL_COUNT - f.coverage.visited.size);
   });
-  it("covers the entire area together and holds without repeat sweeps", () => {
+  it("covers the entire area together, completes the patrol and returns every boat home", () => {
     const f = new FleetController(); f.obstacles = [];
     for (const b of f.boats.values()) { b.battery = 1; f.assign(b.id, mission); }
-    for (let i = 0; i < 2200; i++) f.tick();
+    for (let i = 0; i < 3000; i++) f.tick();
     expect(f.coverage.visited.size).toBe(240);
-    const positions = [...f.boats.values()].map((b) => ({ ...b.pos }));
-    for (let i = 0; i < 10; i++) f.tick();
-    expect([...f.boats.values()].map((b) => b.pos)).toEqual(positions);
+    for (const b of f.boats.values()) {
+      expect(b.mission?.status).toBe("completed");
+      expect(b.mode).toBe("idle");
+      expect(b.pos).toEqual(b.home);
+    }
   });
 });
 
