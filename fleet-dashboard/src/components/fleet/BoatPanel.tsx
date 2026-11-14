@@ -37,6 +37,10 @@ export function BoatPanel({ fleet, boatId }: { fleet: FleetController; boatId: s
         <div className={`font-mono text-sm ${s ? modeTone[s.operating_mode] : ""}`}>{s ? activityLabel(s.operating_mode, delivery) : "No signal"}</div>
       </div>
       <ConnectionStatus fleet={fleet} boatId={boatId} />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+        <Stat label="Water temperature · simulation" value={s?.water_temperature_c != null ? `${s.water_temperature_c.toFixed(1)} °C` : "—"} />
+        <Button size="sm" variant="outline" disabled={s?.water_temperature_c == null} onClick={() => fleet.recordTemperature(boatId)}>Record reading</Button>
+      </div>
       <div className="grid grid-cols-3 gap-4">
         <Stat label="Battery" value={pct(s?.battery_state_of_charge)} />
         <Stat label="Speed" value={s?.speed_over_ground_mps != null ? `${s.speed_over_ground_mps.toFixed(1)} m/s` : "—"} />
