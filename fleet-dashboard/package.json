@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:research": "vite dev --mode research --host 127.0.0.1 --port 5174",
     "build": "vite build",
+    "build:research": "vite build --mode research",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "test:research:e2e": "vitest run --config vitest.research.config.ts",
     "test:watch": "vitest"
   },
   "overrides": {
