@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+import math
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from adapters.fms.loopback import LoopbackFmsLink
 from adapters.propulsion.mock import MockPropulsionSink
 from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
 from adapters.simulation.isaac_sim import IsaacSimAdapter
+from adapters.simulation.mock_vessel import MockVessel
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import SensorKind, SensorSample
 from ai_box.motion.commands import PropulsionCommand, VehicleState
@@ -77,3 +79,69 @@ def test_isaac_sim_placeholder_fails_loudly_and_never_pretends_to_work():
         adapter.poll()
     with pytest.raises(NotImplementedError):
         adapter.apply(PropulsionCommand.stop(T0))
+
+
+def test_mock_vessel_updates_state_on_an_explicit_command_step():
+    initial = VehicleState(timestamp=T0, local_position=LocalPoint(0.0, 0.0), heading_deg=0.0)
+    vessel = MockVessel(
+        initial,
+        speed_mps_at_full_thrust=2.0,
+        turn_rate_deg_s_at_full_command=90.0,
+    )
+    vessel.apply(PropulsionCommand(timestamp=T0, thrust=0.5, rudder=0.5))
+
+    moved = vessel.step(1.0)
+
+    assert moved.timestamp == T0 + timedelta(seconds=1)
+    assert moved.heading_deg == pytest.approx(22.5)
+    assert moved.local_position.x_m == pytest.approx(math.cos(math.radians(22.5)))
+    assert moved.local_position.y_m == pytest.approx(math.sin(math.radians(22.5)))
+    assert moved.geo_position is None
+    assert moved.speed_over_ground_mps is None
+
+    next_step = vessel.step(1.0)
+    assert next_step.local_position == moved.local_position
+    assert next_step.heading_deg == moved.heading_deg
+
+
+@pytest.mark.parametrize("duration_s", [0.0, -1.0, float("nan"), float("inf"), True])
+def test_mock_vessel_rejects_invalid_step_duration(duration_s):
+    initial = VehicleState(timestamp=T0, local_position=LocalPoint(0.0, 0.0), heading_deg=0.0)
+    vessel = MockVessel(initial, speed_mps_at_full_thrust=1.0, turn_rate_deg_s_at_full_command=0.0)
+
+    with pytest.raises(ValueError, match="duration_s"):
+        vessel.step(duration_s)
+
+    assert vessel.current_state() == initial
+
+
+def test_mock_vessel_rejects_nonfinite_state_without_advancing():
+    initial = VehicleState(timestamp=T0, local_position=LocalPoint(float("nan"), 0.0), heading_deg=0.0)
+    vessel = MockVessel(initial, speed_mps_at_full_thrust=1.0, turn_rate_deg_s_at_full_command=0.0)
+    vessel.apply(PropulsionCommand(timestamp=T0, thrust=0.5, rudder=0.0))
+
+    with pytest.raises(ValueError, match="state.local_position.x_m"):
+        vessel.step(1.0)
+
+    assert vessel.current_state() == initial
+
+
+def test_mock_vessel_rejects_nonzero_command_without_position_or_heading():
+    initial = VehicleState(timestamp=T0)
+    vessel = MockVessel(initial, speed_mps_at_full_thrust=1.0, turn_rate_deg_s_at_full_command=0.0)
+    vessel.apply(PropulsionCommand(timestamp=T0, thrust=0.5, rudder=0.0))
+
+    with pytest.raises(ValueError, match="require local position and heading"):
+        vessel.step(1.0)
+
+    assert vessel.current_state() == initial
+
+
+def test_mock_vessel_rejects_nonfinite_command_without_retaining_it():
+    initial = VehicleState(timestamp=T0, local_position=LocalPoint(0.0, 0.0), heading_deg=0.0)
+    vessel = MockVessel(initial, speed_mps_at_full_thrust=1.0, turn_rate_deg_s_at_full_command=0.0)
+
+    with pytest.raises(ValueError, match="thrust"):
+        vessel.apply(PropulsionCommand(timestamp=T0, thrust=float("nan"), rudder=0.0))
+
+    assert vessel.step(1.0).local_position == initial.local_position

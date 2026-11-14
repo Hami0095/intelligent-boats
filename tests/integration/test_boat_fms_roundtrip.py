@@ -9,6 +9,7 @@ from adapters.fms.loopback import LoopbackFmsLink
 from adapters.propulsion.mock import MockPropulsionSink
 from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
 from adapters.simulation.isaac_sim.adapter import IsaacSimAdapter
+from adapters.simulation.mock_vessel import MockVessel
 from ai_box.bootstrap import build_boat
 from ai_box.config.settings import AIBoxConfig
 from ai_box.core.events import FMS_OUTBOUND, Outbound
@@ -693,6 +694,75 @@ def test_mock_sensor_observation_updates_knowledge_and_reports_aggregate_progres
         services = {service.name: service for service in health.payload.services}
         assert services["environment-observation-ingest"].status is HealthStatus.OK
         assert services["environment-knowledge"].status is HealthStatus.OK
+    finally:
+        runtime.app.shutdown()
+
+
+def test_explicit_step_mock_vessel_reports_state_and_stays_inhibited_after_safe_state(
+    world: SimpleNamespace,
+) -> None:
+    boat_id = "boat-sim"
+    world.registry.register(BoatIdentity(boat_id=boat_id, display_name="Mock simulation boat"))
+    initial_position = LocalPoint(5.0, 5.0)
+    vessel = MockVessel(
+        VehicleState(timestamp=NOW, local_position=initial_position, heading_deg=0.0),
+        speed_mps_at_full_thrust=2.0,
+        turn_rate_deg_s_at_full_command=90.0,
+    )
+    link = LoopbackFmsLink(server=world.endpoint.receive)
+    grid = GridIndexer()
+    runtime = build_boat(
+        AIBoxConfig(boat_id=boat_id),
+        position=vessel,
+        propulsion=vessel,
+        fms_link=link,
+        search_areas={"area-sim": SearchArea(0.0, 0.0, 20.0, 20.0)},
+        indexer=grid,
+    )
+    runtime.app.start()
+    try:
+        assignment = world.fms_missions.assign(
+            boat_id, "mission-sim", MissionAssignmentPayload(objective="test", search_area_id="area-sim")
+        )
+        link.deliver([assignment])
+        for _ in range(3):
+            runtime.app.tick()
+            vessel.step(1.0)
+
+        assert runtime.missions.active_mission is not None
+        assert runtime.missions.active_mission.mission_id == "mission-sim"
+        assert runtime.motion.goal is not None
+        assert vessel.current_state().local_position == initial_position
+        visited = runtime.knowledge.region(grid.region_of(initial_position))
+        assert visited.status is RegionStatus.VISITED
+        assert visited.search_count == 0
+
+        safe_state = world.fms_missions.safe_state(
+            boat_id, SafeStateAction.STOP_PROPULSION, reason="mock simulation stop"
+        )
+        link.deliver([safe_state])
+        for _ in range(3):
+            runtime.app.tick()
+            vessel.step(1.0)
+
+        assert runtime.motion.inhibited
+        assert runtime.operating.mode is OperatingMode.SAFE_STATE
+        assert runtime.missions.active_mission is not None
+        assert runtime.motion.goal is not None
+        assert vessel.current_state().local_position == initial_position
+        assert vessel.current_state().heading_deg == 0.0
+        assert world.outbox.unacknowledged(boat_id) == ()
+
+        boat_state = world.store.latest(boat_id, MessageType.BOAT_STATE)
+        assert boat_state is not None
+        assert boat_state.payload.operating_mode is OperatingMode.SAFE_STATE
+        assert boat_state.payload.position is None
+        assert boat_state.payload.heading_deg == 0.0
+        progress = world.store.latest(boat_id, MessageType.ENVIRONMENT_PROGRESS)
+        assert progress is not None
+        assert progress.envelope.mission_id == "mission-sim"
+        assert progress.payload.searched_region_count == 0
+        assert progress.payload.coverage_fraction == 0.0
     finally:
         runtime.app.shutdown()
 

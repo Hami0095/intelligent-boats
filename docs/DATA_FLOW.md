@@ -44,6 +44,10 @@ Separately, `environment-observation-ingest` accepts only `SensorKind.OTHER` sam
 
 Health reports use the service manager's lifecycle and service-level health details. The bridge reports a link unavailable only after a `ConnectionError` is observed; an outbound message waiting for the next bridge tick does not by itself make health degraded. Sensor measurements not available from the injected sources remain `None` in boat-state telemetry.
 
+## 5. Explicit-step mock vessel
+
+`adapters.simulation.mock_vessel.MockVessel` can be injected as both `PositionSource` and `PropulsionSink` in tests. It consumes each supplied normalized command on one explicit `step(duration_s)` call and returns its updated local state through `current_state()`. A test or caller must place that step between `app.tick()` calls; no scheduler or default bootstrap wiring is added. The existing `HoldPositionController` remains the default and emits zero, so the mock adapter does not create autonomous movement. Its synthetic equations and limitations are documented in [adapters/README.md](../adapters/README.md); they do not establish controller behavior, physical dynamics or vessel safety.
+
 ## Timestamps and time zones
 
 Current producers use timezone-aware UTC timestamps. Naive datetimes are rejected, but envelope validation currently accepts other timezone-aware offsets without normalization.
