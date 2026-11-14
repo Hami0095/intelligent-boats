@@ -15,7 +15,7 @@ from ai_box.core.events import FMS_OUTBOUND, Outbound
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import Detection, SensorKind, SensorSample
 from ai_box.environment.knowledge import RegionStatus
-from ai_box.environment.model import SearchArea
+from ai_box.environment.model import GridIndexer, SearchArea
 from ai_box.motion.commands import NavigationGoal, PropulsionCommand, VehicleState
 from ai_box.services.command_router import NOT_IMPLEMENTED_NAV
 from fms.communication.outbox import Outbox
@@ -632,6 +632,69 @@ def test_endpoint_raises_for_unknown_boats_directly(world):
     )
     with pytest.raises(UnregisteredBoatError):
         world.endpoint.receive(stranger)
+
+
+def test_mock_sensor_observation_updates_knowledge_and_reports_aggregate_progress(world: SimpleNamespace) -> None:
+    observation_point = LocalPoint(15.0, 5.0)
+    sample = SensorSample(
+        sensor_id="mock-observation",
+        kind=SensorKind.OTHER,
+        timestamp=NOW,
+        data={
+            "environment_observation": {
+                "point": {"x_m": observation_point.x_m, "y_m": observation_point.y_m},
+                "confidence": 0.8,
+                "mission_id": "m-observed",
+                "provenance_detail": "explicit mock fixture",
+            }
+        },
+    )
+    position = MockPositionSource()
+    position.set_state(VehicleState(timestamp=NOW, local_position=LocalPoint(5.0, 5.0)))
+    link = LoopbackFmsLink(server=world.endpoint.receive)
+    grid = GridIndexer()
+    runtime = build_boat(
+        AIBoxConfig(boat_id=BOAT, outbound_buffer_limit=50),
+        position=position,
+        propulsion=MockPropulsionSink(),
+        fms_link=link,
+        sensors=[MockSensorAdapter("mock-observation", [[], [sample]])],
+        search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
+        indexer=grid,
+    )
+    runtime.app.start()
+    try:
+        command = world.fms_missions.assign(
+            BOAT, "m-observed", MissionAssignmentPayload(objective="find target", search_area_id="area-1")
+        )
+        link.deliver([command])
+        for _ in range(10):
+            runtime.app.tick()
+
+        assert runtime.missions.active_mission is not None
+        assert runtime.missions.active_mission.mission_id == "m-observed"
+        assert world.outbox.unacknowledged(BOAT) == ()
+
+        observed = runtime.knowledge.region(grid.region_of(observation_point))
+        visited = runtime.knowledge.region(grid.region_of(LocalPoint(5.0, 5.0)))
+        assert observed.status is RegionStatus.OBSERVED
+        assert observed.visit_count == 0 and observed.search_count == 0
+        assert visited.status is RegionStatus.VISITED
+
+        progress = world.store.latest(BOAT, MessageType.ENVIRONMENT_PROGRESS)
+        assert progress is not None
+        assert progress.envelope.mission_id == "m-observed"
+        assert progress.payload.known_region_count == 2
+        assert progress.payload.searched_region_count == 0
+        assert progress.payload.coverage_fraction == 0.0
+
+        health = world.store.latest(BOAT, MessageType.SERVICE_HEALTH)
+        assert health is not None
+        services = {service.name: service for service in health.payload.services}
+        assert services["environment-observation-ingest"].status is HealthStatus.OK
+        assert services["environment-knowledge"].status is HealthStatus.OK
+    finally:
+        runtime.app.shutdown()
 
 
 def test_obstacle_detection_is_forwarded_as_summary_without_fabricated_risk(world):

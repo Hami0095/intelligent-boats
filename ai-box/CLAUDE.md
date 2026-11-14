@@ -5,8 +5,8 @@ The AI Box is the onboard software environment of one boat. It is a set of indep
 ## Responsibilities
 
 - Start, stop and monitor its services; deliver events between them.
-- Ingest sensor samples and detect collision-relevant obstacles.
-- Record visited and searched regions; choose where to search next.
+- Ingest sensor samples, normalize the accepted mock environment-observation payload, and detect collision-relevant obstacles.
+- Record visited, observed and searched regions; choose where to search next.
 - Hold short-term, mission and persistent memory, with timestamps and provenance.
 - Turn goals into normalised propulsion commands.
 - Report state, progress, obstacles, events and health to the FMS, and act on FMS commands.
@@ -20,7 +20,7 @@ The AI Box is the onboard software environment of one boat. It is a set of indep
 | `health/` | Aggregating health |
 | `services/` | Sensor ingest, FMS bridge (the only FMS I/O), command router |
 | `perception/` | Detection, obstacle summary, tracking interface |
-| `environment/` | Regions, observations, search status |
+| `environment/` | Regions, typed observations, mock observation ingress, search status |
 | `memory/` | Records, mission memory, persistent store interface |
 | `decision/` | Mission service, exploration policy, reward interface |
 | `motion/` | Goals, vehicle state, commands, controller interface |
@@ -35,6 +35,7 @@ The AI Box is the onboard software environment of one boat. It is a set of indep
 - Do not sleep or block in `tick`. Sensor polling must return promptly.
 - Use `None` for unknown values. Never fabricate a risk, position or reward.
 - Refuse unsupported commands explicitly, with a reason.
+- Only the accepted `SensorKind.OTHER` mock payload creates `OBSERVED`; it supplies an already-normalized local point and does not infer semantic meaning or `SEARCHED` coverage from collision detections.
 - Motion safe-stop/fault inhibition is latched for the instance lifetime (accepted ADR-0007 H1-H3). Goals, ticks, service restarts and assignments cannot rearm; a new runtime is required. Set SAFE_STATE/inhibition before fallible safe-state handling.
 - Ordinary goal clearing attempts zero immediately without latching on success. Cancellation must finish local cleanup despite stop failure and acknowledge failed zero application accurately. Clock failure may use the last validated timestamp only for an emergency zero, reported as not fresh; no valid timestamp means inhibit/report without inventing one. Bound zero attempts to one per event/tick and keep fault health degraded after callback recovery.
 

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 log = logging.getLogger("ai_box.events")
 
 SENSOR_SAMPLE = "sensor.sample"
+ENVIRONMENT_OBSERVATION = "environment.observation"
 PERCEPTION_FRAME = "perception.frame"
 TELEMETRY_BOAT_STATE = "telemetry.boat_state"
 FMS_OUTBOUND = "fms.outbound"

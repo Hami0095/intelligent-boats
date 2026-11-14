@@ -23,6 +23,7 @@ from ai_box.core.state import OperatingState
 from ai_box.decision.mission import SearchMissionService
 from ai_box.decision.policy import ExplorationPolicy, UnsearchedRegionPolicy
 from ai_box.decision.reward import NoReward
+from ai_box.environment.ingestion import EnvironmentKnowledgeService, EnvironmentObservationIngestService
 from ai_box.environment.knowledge import InMemoryEnvironmentKnowledge
 from ai_box.environment.model import GridIndexer, RegionIndexer, SearchArea
 from ai_box.memory.mission import MissionMemory
@@ -90,6 +91,8 @@ def build_boat(
 
     for service in (
         SensorIngestService(sensors),
+        EnvironmentObservationIngestService(),
+        EnvironmentKnowledgeService(knowledge),
         PerceptionService(detector or NullObstacleDetector()),
         motion,
         missions,

@@ -28,7 +28,7 @@ class SensorKind(str, Enum):
 
 @dataclass(frozen=True)
 class SensorSample:
-    """A normalised sensor reading. The keys of `data` depend on `kind` and are documented by each adapter."""
+    """A normalized reading. `SensorKind.OTHER` may carry the mock observation schema documented in DATA_FLOW.md."""
 
     sensor_id: str
     kind: SensorKind
