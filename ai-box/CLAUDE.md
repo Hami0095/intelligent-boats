@@ -35,6 +35,8 @@ The AI Box is the onboard software environment of one boat. It is a set of indep
 - Do not sleep or block in `tick`. Sensor polling must return promptly.
 - Use `None` for unknown values. Never fabricate a risk, position or reward.
 - Refuse unsupported commands explicitly, with a reason.
+- Motion safe-stop/fault inhibition is latched for the instance lifetime (accepted ADR-0007 H1-H3). Goals, ticks, service restarts and assignments cannot rearm; a new runtime is required. Set SAFE_STATE/inhibition before fallible safe-state handling.
+- Ordinary goal clearing attempts zero immediately without latching on success. Cancellation must finish local cleanup despite stop failure and acknowledge failed zero application accurately. Clock failure may use the last validated timestamp only for an emergency zero, reported as not fresh; no valid timestamp means inhibit/report without inventing one. Bound zero attempts to one per event/tick and keep fault health degraded after callback recovery.
 
 ## Open items that touch this module
 
