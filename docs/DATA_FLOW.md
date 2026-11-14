@@ -35,10 +35,12 @@ Failed zero application produces a rejected acknowledgement with a reason; cance
 
 ## 4. Search progress
 
-1. On each tick, `search-mission` takes the current position and records a VISITED observation in environment knowledge and in mission memory.
+1. On each active-mission tick, `search-mission` takes the current local position and records a VISITED observation in environment knowledge and mission memory. Visiting a cell never marks it searched. No current service turns sensor samples into SEARCHED or OBSERVED environment observations; the search-coverage model remains OPEN.
 2. The exploration policy reads knowledge and chooses the next target: never-visited regions first, then the nearest, never the current region.
 3. The target becomes a `NavigationGoal` for `motion`. The goal is replaced after the boat enters its acceptance radius.
-4. While a mission is active, `telemetry` sends an `EnvironmentProgressPayload` built from the environment model. This reports visits/coverage state, not verified searched coverage or mission completion.
+4. While a mission is active, `telemetry` obtains the environment summary together with that mission ID and publishes it as an `EnvironmentProgressPayload` in an envelope carrying the same ID. The FMS stores the received envelope and payload by boat and message type; the summary contains counts and coverage, not per-region identifiers. It reports no verified searched coverage until a SEARCHED observation is explicitly recorded, and it does not signal mission completion.
+
+Health reports use the service manager's lifecycle and service-level health details. The bridge reports a link unavailable only after a `ConnectionError` is observed; an outbound message waiting for the next bridge tick does not by itself make health degraded. Sensor measurements not available from the injected sources remain `None` in boat-state telemetry.
 
 ## Timestamps and time zones
 

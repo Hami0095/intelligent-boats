@@ -10,7 +10,7 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 | 4 | Local frame origin and axes, and the geographic-to-local transform | OPEN | Position is held in local metres; geographic goals are rejected | Motion, localisation |
 | 5 | Position estimation and sensor fusion (GPS, IMU, odometry, camera) | OPEN | Position source is a port; confidence is a fixed placeholder (0.5) | Perception, hardware |
 | 6 | Reward definition and what counts as "found" or "search complete" | OPEN | `RewardSignal` returns no reward; no completion logic | Mission owners |
-| 7 | How search coverage is measured from sensors (sweep model) | OPEN | Only visits are recorded; no region becomes "searched" | Perception, environment |
+| 7 | How search coverage is measured from sensors (sweep model) | OPEN | The mission service records `VISITED` from the position source; no service produces sensor-derived `SEARCHED` or `OBSERVED` environment records, so no region becomes "searched" | Perception, environment |
 | 8 | Region partitioning scheme for the environment model | OPEN | `GridIndexer` with a placeholder cell size of 10 m | Environment |
 | 9 | Obstacle tracking across frames | OPEN | Frame-local identifiers only | Perception |
 | 10 | Collision-risk estimation (method, inputs, units) | OPEN | `collision_risk` is always unset | Perception, motion |

@@ -30,7 +30,7 @@ class FmsBridgeService(Service):
         self._sequence = 0
         self._dropped = 0
         self._inbound_rejected = 0
-        self._send_failures = 0
+        self._link_unavailable = False
 
     @property
     def pending(self) -> int:
@@ -71,13 +71,15 @@ class FmsBridgeService(Service):
     def tick(self) -> None:
         if self._ctx is None:
             return
+        send_failed = False
         while self._outbox:
             head = self._outbox[0]
             try:
                 self._link.send(head)
             except ConnectionError:
                 # Link is down: keep the message and retry on the next tick.
-                self._send_failures += 1
+                self._link_unavailable = True
+                send_failed = True
                 break
             except Exception:
                 # The peer refused this message. Retrying would block everything behind it.
@@ -87,8 +89,10 @@ class FmsBridgeService(Service):
         try:
             inbound = self._link.receive()
         except ConnectionError:
-            self._send_failures += 1
+            self._link_unavailable = True
             return
+        if not send_failed:
+            self._link_unavailable = False
         for envelope in inbound:
             if envelope.boat_id != self._ctx.config.boat_id:
                 self._inbound_rejected += 1
@@ -111,8 +115,11 @@ class FmsBridgeService(Service):
             details.append(f"{self._dropped} outbound message(s) dropped")
         if self._inbound_rejected:
             details.append(f"{self._inbound_rejected} inbound message(s) rejected")
-        if self._outbox:
-            details.append(f"{len(self._outbox)} message(s) buffered while link unavailable")
+        if self._link_unavailable:
+            if self._outbox:
+                details.append(f"{len(self._outbox)} message(s) buffered while link unavailable")
+            else:
+                details.append("FMS link unavailable")
         if details:
             return HealthStatus.DEGRADED, "; ".join(details)
         return HealthStatus.OK, ""
