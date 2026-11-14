@@ -70,11 +70,13 @@ class SearchMissionService(Service):
         return None
 
     def stop(self) -> None:
-        self._motion.set_goal(None)
         self._active = None
+        self._motion.set_goal(None)
 
     def assign(self, mission_id: str, search_area_id: str) -> str | None:
         """Activate a mission. Returns None on success, or the reason it was refused."""
+        if self._motion.inhibited:
+            return "motion is inhibited; mission assignment cannot resume it"
         if self._active is not None:
             return f"another mission ({self._active.mission_id}) is already active"
         area = self._areas.get(search_area_id)
@@ -90,9 +92,9 @@ class SearchMissionService(Service):
     def cancel(self, mission_id: str) -> bool:
         if self._active is None or self._active.mission_id != mission_id:
             return False
-        self._motion.set_goal(None)
         self._mission_memory.forget(mission_id)
         self._active = None
+        self._motion.set_goal(None)
         return True
 
     def progress(self) -> EnvironmentProgressPayload | None:

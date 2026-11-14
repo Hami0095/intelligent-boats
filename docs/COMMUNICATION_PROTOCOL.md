@@ -50,11 +50,13 @@ Encoding is JSON. No transport library is imported by the contracts.
 
 ## Current behaviour of the boat
 
-- Mission assignment: accepted if no other mission is active and the search area is known; otherwise rejected with a reason.
-- Mission cancellation: accepted if it matches the active mission.
-- Safe-state command: `hold_position` and `stop_propulsion` are accepted and both stop propulsion in the foundation. `return_home` is rejected: not implemented.
+- Mission assignment: accepted if motion is not inhibited, no other mission is active and the search area is known; otherwise rejected with a reason. Assignment never rearms inhibition.
+- Mission cancellation: a matching mission is cleared locally and zero is attempted immediately. Accepted only when that application succeeds; otherwise a rejected ACK explains that local cancellation completed but zero application failed. Ordinary successful cancellation does not latch inhibition; stop/fault inhibition remains latched.
+- Safe-state command: `hold_position` and `stop_propulsion` set SAFE_STATE and latch motion inhibition before fallible work. Accepted only when zero application succeeds; otherwise rejected with a failure reason, without releasing inhibition. Cancellation scope remains matching-only when a mission ID is supplied. `return_home` is rejected: not implemented.
 - Navigation goal: rejected. Geographic-to-local conversion is OPEN.
 - Configuration update: rejected. Not implemented.
+
+These are the accepted software stop/fault policies in ADR-0007 H1-H3. No fields or message versions changed. Successful sink application is not an assertion of physical stopping; timestamp acceptance and device watchdog semantics remain unresolved.
 
 ## Proposed delivery behaviour
 
