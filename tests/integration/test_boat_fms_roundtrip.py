@@ -144,6 +144,30 @@ def test_mission_assignment_is_accepted_and_the_boat_starts_searching(world):
     assert world.outbox.unacknowledged(BOAT) == ()  # the boat's acknowledgement cleared the FMS queue
 
 
+def test_duplicate_assignment_delivery_does_not_replace_the_active_mission(world: SimpleNamespace) -> None:
+    command = world.fms_missions.assign(
+        BOAT, "m-duplicate", MissionAssignmentPayload(objective="find target", search_area_id="area-1")
+    )
+    world.link.deliver([command, command])
+
+    for _ in range(3):
+        world.runtime.app.tick()
+
+    progress = world.store.history(BOAT, MessageType.MISSION_PROGRESS)
+    assert [message.payload.status for message in progress] == [MissionStatus.ACCEPTED, MissionStatus.REJECTED]
+    assert world.runtime.missions.active_mission is not None
+    assert world.runtime.missions.active_mission.mission_id == "m-duplicate"
+    acknowledgements = [
+        entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack" and str(command.message_id) in entry.message
+    ]
+    assert len(acknowledgements) == 2
+    assert "accepted" in acknowledgements[0] and "queue cleared=True" in acknowledgements[0]
+    assert "rejected" in acknowledgements[1] and "queue cleared=False" in acknowledgements[1]
+    assert world.outbox.unacknowledged(BOAT) == ()
+
+
 def test_rejected_mission_assignment_is_acknowledged_and_clears_the_fms_queue(world: SimpleNamespace) -> None:
     command = world.fms_missions.assign(
         BOAT,
@@ -203,6 +227,105 @@ def test_fms_routes_a_mission_only_to_its_target_boat(world: SimpleNamespace) ->
         assert world.store.latest(other_boat_id, MessageType.MISSION_PROGRESS) is not None
         assert world.store.history(BOAT, MessageType.MISSION_PROGRESS) == ()
         assert world.outbox.unacknowledged(other_boat_id) == ()
+    finally:
+        other_runtime.app.shutdown()
+
+
+def test_one_boat_can_disconnect_while_the_other_keeps_reporting_and_commands_ack(
+    world: SimpleNamespace,
+) -> None:
+    other_boat_id = "boat-02"
+    world.registry.register(BoatIdentity(boat_id=other_boat_id, display_name="Bravo"))
+    other_position = MockPositionSource()
+    other_position.set_state(
+        VehicleState(
+            timestamp=NOW,
+            local_position=LocalPoint(1.0, 1.0),
+            geo_position=GeoPosition(latitude_deg=59.4, longitude_deg=18.1),
+        )
+    )
+    other_link = LoopbackFmsLink(server=world.endpoint.receive)
+    other_runtime = build_boat(
+        AIBoxConfig(boat_id=other_boat_id),
+        position=other_position,
+        propulsion=MockPropulsionSink(),
+        fms_link=other_link,
+        search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
+    )
+    other_runtime.app.start()
+    try:
+        command_a = world.fms_missions.assign(
+            BOAT, "mission-a", MissionAssignmentPayload(objective="search A", search_area_id="area-1")
+        )
+        command_b = world.fms_missions.assign(
+            other_boat_id, "mission-b", MissionAssignmentPayload(objective="search B", search_area_id="area-1")
+        )
+        assert command_a.sequence_number == command_b.sequence_number == 0
+
+        world.link.deliver([command_a])
+        world.runtime.app.tick()
+        other_link.deliver([command_b])
+        other_runtime.app.tick()
+        other_runtime.app.tick()
+
+        assert world.runtime.missions.active_mission is not None
+        assert other_runtime.missions.active_mission is not None
+        assert world.outbox.unacknowledged(BOAT) == (command_a,)
+        assert world.outbox.unacknowledged(other_boat_id) == ()
+        assert any(
+            entry.category == "ack"
+            and entry.boat_id == other_boat_id
+            and str(command_b.message_id) in entry.message
+            and "queue cleared=True" in entry.message
+            for entry in world.audit.entries()
+        )
+
+        world.link.set_online(False)
+        event = OperationalEventPayload(
+            severity=Severity.WARNING,
+            code="test.offline",
+            message="buffered while boat A is disconnected",
+        )
+        world.runtime.app.bus.publish(FMS_OUTBOUND, Outbound(message_type=MessageType.OPERATIONAL_EVENT, payload=event))
+        for _ in range(10):
+            world.runtime.app.tick()
+            other_runtime.app.tick()
+
+        assert len(world.store.history(BOAT, MessageType.BOAT_STATE)) == 1
+        assert world.store.history(BOAT, MessageType.MISSION_PROGRESS) == ()
+        assert world.runtime.bridge.pending >= 10
+        assert world.outbox.unacknowledged(BOAT) == (command_a,)
+        assert world.outbox.unacknowledged(other_boat_id) == ()
+        assert len(world.store.history(other_boat_id, MessageType.BOAT_STATE)) > 1
+        assert world.store.latest(other_boat_id, MessageType.MISSION_PROGRESS) is not None
+
+        world.link.set_online(True)
+        for _ in range(3):
+            world.runtime.app.tick()
+            other_runtime.app.tick()
+
+        assert world.outbox.unacknowledged(BOAT) == ()
+        assert world.outbox.unacknowledged(other_boat_id) == ()
+        assert world.store.latest(BOAT, MessageType.MISSION_PROGRESS).payload.status is MissionStatus.ACCEPTED
+        assert world.store.latest(BOAT, MessageType.OPERATIONAL_EVENT).payload == event
+        offline_health = world.store.latest(BOAT, MessageType.SERVICE_HEALTH)
+        assert offline_health is not None
+        bridge_health = next(item for item in offline_health.payload.services if item.name == "fms-bridge")
+        assert bridge_health.status.value == "degraded"
+        assert world.store.latest(other_boat_id, MessageType.MISSION_PROGRESS).payload.status is MissionStatus.ACCEPTED
+        assert world.store.latest(BOAT, MessageType.BOAT_STATE).payload.position == GeoPosition(
+            latitude_deg=59.3, longitude_deg=18.0
+        )
+        assert world.store.latest(other_boat_id, MessageType.BOAT_STATE).payload.position == GeoPosition(
+            latitude_deg=59.4, longitude_deg=18.1
+        )
+        assert not any(
+            entry.category == "out_of_order" and entry.boat_id == other_boat_id for entry in world.audit.entries()
+        )
+        assert world.runtime.missions.active_mission.mission_id == "mission-a"
+        assert other_runtime.missions.active_mission.mission_id == "mission-b"
+        assert world.runtime.bridge.pending == 0
+        assert other_runtime.bridge.pending == 0
     finally:
         other_runtime.app.shutdown()
 
@@ -584,6 +707,47 @@ def test_safe_state_inhibits_regenerated_and_forced_goals(
         assert "cancelled locally" in _ack_message(moving, command)
 
 
+def test_duplicate_safe_state_and_reconnect_cannot_rearm_motion(moving: SimpleNamespace) -> None:
+    world = moving.world
+    command = world.fms_missions.safe_state(BOAT, SafeStateAction.STOP_PROPULSION, reason="duplicate test")
+    world.link.deliver([command, command])
+    moving.boat.bridge.tick()
+    moving.boat.bridge.tick()
+
+    assert moving.boat.motion.inhibited
+    assert moving.boat.operating.mode is OperatingMode.SAFE_STATE
+    assert moving.sink.zero_attempts >= 2
+    acknowledgements = [
+        entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack" and str(command.message_id) in entry.message
+    ]
+    assert len(acknowledgements) == 2
+    assert "queue cleared=True" in acknowledgements[0]
+    assert "queue cleared=False" in acknowledgements[1]
+
+    start = len(moving.sink.commands)
+    world.link.set_online(False)
+    assignment = world.fms_missions.assign(
+        BOAT, "m-after-reconnect", MissionAssignmentPayload(objective="test", search_area_id="area-1")
+    )
+    _deliver_pending_commands(world)
+    for _ in range(2):
+        moving.boat.app.tick()
+    assert world.outbox.unacknowledged(BOAT) == (assignment,)
+
+    world.link.set_online(True)
+    for _ in range(3):
+        moving.boat.app.tick()
+
+    assert moving.boat.motion.inhibited
+    assert moving.boat.operating.mode is OperatingMode.SAFE_STATE
+    assert moving.boat.missions.active_mission is not None
+    assert moving.boat.missions.active_mission.mission_id == "m-1"
+    assert all(command.thrust == 0.0 and command.rudder == 0.0 for command in moving.sink.commands[start:])
+    assert world.outbox.unacknowledged(BOAT) == ()
+
+
 def test_inhibited_assignment_is_rejected_directly_and_through_fms(moving: SimpleNamespace) -> None:
     _command(
         moving, MessageType.SAFE_STATE_COMMAND, SafeStateCommandPayload(action=SafeStateAction.STOP_PROPULSION), "m-1"
@@ -622,6 +786,35 @@ def test_cancellation_cleans_up_and_reports_stop_delivery(moving: SimpleNamespac
     if fail_zero:
         assert "cancelled locally" in ack and "zero command failed" in ack
     assert moving.world.store.latest(BOAT, MessageType.MISSION_PROGRESS).payload.status is MissionStatus.ABORTED
+
+
+def test_duplicate_cancellation_cannot_cancel_a_later_mission(moving: SimpleNamespace) -> None:
+    world = moving.world
+    old_cancel = world.fms_missions.cancel(BOAT, "m-1", reason="operator request")
+    world.link.deliver([old_cancel])
+    moving.boat.bridge.tick()
+    moving.boat.bridge.tick()
+    assert moving.boat.missions.active_mission is None
+
+    world.fms_missions.assign(BOAT, "m-2", MissionAssignmentPayload(objective="new mission", search_area_id="area-1"))
+    _deliver_pending_commands(world)
+    moving.boat.bridge.tick()
+    moving.boat.bridge.tick()
+    assert moving.boat.missions.active_mission is not None
+    assert moving.boat.missions.active_mission.mission_id == "m-2"
+
+    zero_attempts = moving.sink.zero_attempts
+    world.link.deliver([old_cancel])
+    moving.boat.bridge.tick()
+
+    assert moving.sink.zero_attempts == zero_attempts
+    assert moving.boat.missions.active_mission.mission_id == "m-2"
+    assert not moving.boat.motion.inhibited
+    moving.boat.bridge.tick()
+    assert any(
+        entry.category == "ack" and str(old_cancel.message_id) in entry.message and "rejected" in entry.message
+        for entry in world.audit.entries()
+    )
 
 
 def test_mismatching_cancellation_does_not_stop_or_clear_the_active_mission(moving: SimpleNamespace) -> None:

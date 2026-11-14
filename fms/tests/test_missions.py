@@ -2,7 +2,13 @@ import pytest
 from fms.communication.outbox import Outbox, OutboxFullError
 from fms.core.fleet import BoatIdentity, FleetRegistry, UnregisteredBoatError
 from fms.missions.service import MissionService
-from marine_contracts import MessageType, MissionAssignmentPayload, SafeStateAction
+from marine_contracts import (
+    MessageType,
+    MissionAssignmentPayload,
+    SafeStateAction,
+    SafeStateCommandPayload,
+    make_envelope,
+)
 
 
 def _service(limit=10):
@@ -43,6 +49,33 @@ def test_unacknowledged_commands_are_offered_again_after_reconnection():
     assert command in outbox.unacknowledged("boat-01")  # still there after a dropped link
     assert outbox.acknowledge("boat-01", command.message_id) is True
     assert outbox.unacknowledged("boat-01") == ()
+
+
+def test_enqueuing_the_same_command_idempotently_preserves_one_pending_envelope():
+    missions, outbox = _service(limit=1)
+    command = missions.assign("boat-01", "m-1", MissionAssignmentPayload(objective="search", search_area_id="area-1"))
+
+    outbox.enqueue(command)
+
+    assert outbox.unacknowledged("boat-01") == (command,)
+
+
+def test_conflicting_command_with_a_pending_message_id_is_rejected_without_overwrite():
+    missions, outbox = _service()
+    command = missions.assign("boat-01", "m-1", MissionAssignmentPayload(objective="search", search_area_id="area-1"))
+    conflict = make_envelope(
+        boat_id=command.boat_id,
+        message_type=MessageType.SAFE_STATE_COMMAND,
+        payload=SafeStateCommandPayload(action=SafeStateAction.STOP_PROPULSION),
+        sequence_number=command.sequence_number + 1,
+        timestamp=command.timestamp,
+        message_id=command.message_id,
+    )
+
+    with pytest.raises(ValueError, match="message_id"):
+        outbox.enqueue(conflict)
+
+    assert outbox.unacknowledged("boat-01") == (command,)
 
 
 def test_outbox_rejects_non_positive_limits():
