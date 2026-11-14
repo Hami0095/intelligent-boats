@@ -14,10 +14,15 @@ ROOT = Path(__file__).resolve().parents[2]
 STDLIB = set(sys.stdlib_module_names)
 SIMULATOR_MODULES = {"isaacsim", "omni", "isaaclab", "isaac_sim"}
 
+# The only folder allowed to import the simulator. See CLAUDE.md and ADR for the exemption.
+SIMULATOR_ADAPTER_DIR = ROOT / "adapters" / "src" / "adapters" / "simulation" / "isaac_sim"
 
-def _top_level_imports(package_dir: Path) -> set[str]:
+
+def _top_level_imports(package_dir: Path, exclude: Path | None = None) -> set[str]:
     names: set[str] = set()
     for path in package_dir.rglob("*.py"):
+        if exclude is not None and path.is_relative_to(exclude):
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -52,9 +57,18 @@ def test_only_the_adapters_package_may_depend_on_ai_box_ports():
 
 
 def test_adapters_stay_inside_their_allowed_dependencies():
-    _assert_only_allowed("adapters/src", {"adapters", "ai_box", "marine_contracts", "pydantic"})
+    # The simulator adapter folder is exempt; it may import the simulator and nothing else new.
+    imported = _top_level_imports(ROOT / "adapters" / "src", exclude=SIMULATOR_ADAPTER_DIR)
+    disallowed = imported - {"adapters", "ai_box", "marine_contracts", "pydantic"} - STDLIB
+    assert not disallowed, f"adapters/src imports disallowed modules: {sorted(disallowed)}"
 
 
-@pytest.mark.parametrize("package", ["ai-box/src", "fms/src", "interfaces/src", "adapters/src"])
+@pytest.mark.parametrize("package", ["ai-box/src", "fms/src", "interfaces/src"])
 def test_no_package_imports_isaac_sim(package):
     assert not (_top_level_imports(ROOT / package) & SIMULATOR_MODULES)
+
+
+def test_simulator_imports_stay_in_the_isaac_sim_adapter_folder():
+    assert SIMULATOR_ADAPTER_DIR.is_dir(), "the exempt simulator folder must exist"
+    outside = _top_level_imports(ROOT / "adapters" / "src", exclude=SIMULATOR_ADAPTER_DIR)
+    assert not (outside & SIMULATOR_MODULES)
