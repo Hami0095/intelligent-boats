@@ -26,8 +26,27 @@ Open the local address printed by Vite. Run tests with `bun run test` and create
 - Hold, stop propulsion, return home and mission cancellation controls.
 - Delivery history saved in this browser.
 
+## Connecting a real AI box
+
+The dashboard exposes an HTTP relay at `/api/public/fms-link` and this repo now ships a matching Python adapter, `adapters/src/adapters/fms/http_link.py` (`HttpFmsLink`), which implements the existing `FmsLink` send/receive protocol — plug it into `FmsBridgeService` in place of the loopback link:
+
+```python
+from adapters.fms.http_link import HttpFmsLink
+
+link = HttpFmsLink(
+    base_url="https://<your-dashboard-host>",
+    boat_id="usv-05",
+    token="<FMS_LINK_TOKEN>",
+)
+```
+
+- `send` POSTs one boat-originated envelope; `receive` GETs and drains the FMS commands waiting for that boat. Both raise `ConnectionError` while unreachable, as the bridge expects.
+- Every request carries `Authorization: Bearer <token>`; the token must match the dashboard's `FMS_LINK_TOKEN` secret. Calls without it are rejected.
+- A boat is registered by the dashboard on first contact and labeled as a real AI-box connection, with last-update time and the 10-second stale-data warning.
+- The relay is an in-memory mailbox per server process: messages are lost on restart and while the dashboard tab is closed. This is a hackathon demo link, not durable transport.
+
 ## Integration boundary
 
-This is currently a standalone simulation, not a connection to real AI boxes. Fleet state, search coverage and trails reset on reload; delivery history alone survives in browser storage. Chart shading is a simulated visited-cell estimate, not verified sensor coverage. Temperature values come from a simulated spatial field, not a waterproof sensor, and are labeled as simulation in the interface.
+Fleet state, search coverage and trails reset on reload; delivery history alone survives in browser storage. Chart shading is a simulated visited-cell estimate, not verified sensor coverage. Temperature values come from a simulated spatial field, not a waterproof sensor, and are labeled as simulation in the interface.
 
-To connect the Python AI boxes, implement a shared network transport for their existing FmsLink send/receive interface and replace the dashboard loopback transport with command publishing and telemetry reception. Verify mission payload parity first; dashboard delivery and home-return behavior must not be assumed to exist onboard. Keep physical emergency stop and onboard collision protection independent of the dashboard, and test with motors disconnected first.
+Verify mission payload parity before relying on the link: the dashboard's simulated delivery extension is stripped from mission assignments before crossing to the boat, and dashboard home-return behavior must not be assumed to exist onboard. Keep physical emergency stop and onboard collision protection independent of the dashboard, and test with motors disconnected first.

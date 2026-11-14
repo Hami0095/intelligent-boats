@@ -6,6 +6,8 @@ import { createObstacles, type NavigationObstacle } from "./navigation";
 import { CoverageSearch, FleetCoverage } from "./search-area";
 import { connectionStatus, type ConnectionSource } from "./connection";
 import { TemperatureLog } from "./temperature";
+import { pythonToTsEnvelope } from "./external-link";
+import type { RawEnvelope } from "./relay";
 
 export interface MissionRecord { mission_id: string; boat_id: string; objective: string; search_area_id: string; created_at: number }
 
@@ -102,5 +104,37 @@ export class FleetController {
   connection(boatId: string, now = Date.now()) {
     this.registry.require(boatId);
     return connectionStatus(this.sources.get(boatId) ?? "simulation", this.store.latest(boatId, "boat_state")?.received_at ?? null, now);
+  }
+
+  /**
+   * Feed raw envelopes received from real AI boxes (via the HTTP relay) into
+   * the FMS endpoint. Unknown boats are registered on first contact and
+   * labelled as real AI-box connections. Returns the FMS replies
+   * (acknowledgements) to send back to the boats.
+   */
+  ingestExternal(raw: RawEnvelope[]): Envelope[] {
+    const replies: Envelope[] = [];
+    let changed = false;
+    for (const r of raw) {
+      const e = pythonToTsEnvelope(r);
+      if (!e) continue;
+      try {
+        this.registry.register({ boat_id: e.boat_id, display_name: e.boat_id });
+      } catch { /* already registered */ }
+      this.sources.set(e.boat_id, "ai-box");
+      this.log("in", e);
+      for (const reply of this.endpoint.receive(e)) { this.log("out", reply); replies.push(reply); }
+      changed = true;
+    }
+    if (changed) this.emit();
+    return replies;
+  }
+
+  /** FMS commands still waiting for real AI boxes to poll them. */
+  externalCommands(): Envelope[] {
+    const out: Envelope[] = [];
+    for (const [boatId, source] of this.sources)
+      if (source === "ai-box") out.push(...this.outbox.unacknowledged(boatId));
+    return out;
   }
 }

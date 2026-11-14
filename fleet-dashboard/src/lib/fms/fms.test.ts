@@ -55,17 +55,13 @@ describe("fleet loopback", () => {
     f.tick();
     return { f, boat, missionId };
   }
-  it("keeps searching after the entire area is covered", () => {
+  it("returns home and completes after the entire area is covered", () => {
     const { f, boat } = searchingFleet();
     for (let i = 0; i < 3500; i++) f.tick();
     expect(boat.searched).toBe(SEARCH_CELL_COUNT);
-    expect(boat.mission?.fraction).toBe(1);
-    expect(boat.mission?.status).toBe("in_progress");
-    expect(f.latestState("usv-01")?.operating_mode).toBe("autonomous");
-    const position = { ...boat.pos };
-    for (let i = 0; i < 100; i++) f.tick();
-    expect(boat.pos).toEqual(position);
-    expect(boat.speed).toBe(0);
+    expect(boat.mission?.status).toBe("completed");
+    expect(boat.mode).toBe("idle");
+    expect(boat.pos).toEqual(boat.home);
   });
   it("retains visited locations and route when recon is reassigned", () => {
     const { f, boat, missionId } = searchingFleet();
