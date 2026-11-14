@@ -11,11 +11,11 @@ Every boat <-> FMS message is wrapped in an envelope:
 | Field | Type | Meaning |
 |---|---|---|
 | `schema_version` | `MAJOR.MINOR.PATCH` | Contract version. This build supports major version 1. |
-| `message_id` | UUID | Unique per message. Used for de-duplication and acknowledgement. |
+| `message_id` | UUID | Unique per message. Used for ACK correlation; the FMS currently de-duplicates boat-originated non-ACK messages. |
 | `boat_id` | string | Matches `^[a-z0-9][a-z0-9-]{1,62}$`. |
 | `mission_id` | string or null | Required for mission-related messages. |
 | `message_type` | enum | Selects the payload model. |
-| `timestamp` | UTC datetime | When the message was created. |
+| `timestamp` | timezone-aware datetime | When the message was created. Current producers use UTC; validation accepts any timezone-aware offset without normalization. |
 | `sequence_number` | integer >= 0 | Monotonic per sender, per boat. |
 | `payload` | object | Validated against the model for `message_type`. Unknown fields are rejected. |
 
@@ -58,15 +58,34 @@ Encoding is JSON. No transport library is imported by the contracts.
 
 These are the accepted software stop/fault policies in ADR-0007 H1-H3. No fields or message versions changed. Successful sink application is not an assertion of physical stopping; timestamp acceptance and device watchdog semantics remain unresolved.
 
+## Verified foundation behaviour
+
+These are capabilities observed in the current code and mock integration tests. They do not imply a deployed transport or stronger delivery guarantees.
+
+- `Envelope` validates the payload for its message type, rejects unknown payload fields, requires a timezone-aware timestamp and supports schema major version 1. `decode_envelope()` validates raw JSON; the loopback link passes already-validated `Envelope` objects.
+- The FMS endpoint requires a registered `boat_id`, rejects boat-originated traffic with an FMS-to-boat message type, stores valid boat messages in memory and replies to critical boat messages. Its bounded duplicate window (default 10,000 IDs per boat) applies to boat-originated non-ACK messages. Out-of-order messages are stored and audited, not rejected. ACKs are correlated by `acknowledged_message_id`; a matching accepted or rejected ACK clears the queued FMS command.
+- The FMS outbox assigns per-boat sequence numbers, rejects enqueueing when that boat's queue is full, and exposes unacknowledged envelopes for a caller to re-offer. There is no FMS command dispatcher or reconnect scheduler in this foundation; the loopback integration tests manually deliver queued commands.
+- The AI Box bridge creates outbound envelopes using its configured boat ID and increasing sequence numbers. Its bounded buffer drops the oldest message when full, retains messages after `ConnectionError` for a later tick, and drops other link-send errors. It removes an outbound message when `send()` returns; it does not retain critical boat messages until their FMS ACK arrives.
+- The AI Box bridge rejects inbound envelopes with a different boat ID or a boat-to-FMS-only message type, logs the rejection, and reports degraded health without replying with an ACK. The FMS endpoint can verify that an envelope names a registered boat, but the current link does not provide authenticated peer identity to prove which boat sent it.
+- Boat-state telemetry is emitted each application tick; service health is emitted every 10 telemetry ticks. Environment progress is emitted when a mission is active; there is no standalone environment-observation message. Obstacle summaries are emitted only when detections exist, and their collision risk remains unset unless a risk estimator provides one. Forwarding obstacle summaries is not evidence that collision avoidance is functional. Operational events are forwarded when an AI Box service publishes them.
+- Mission assignment is accepted only when the boat is not motion-inhibited, has no active mission, and knows the referenced local search area. The AI Box currently uses `search_area_id`; it does not interpret `objective`, `time_limit_s` or `reward_reference`. Mission progress reports acceptance, rejection and aborts; mission-completion semantics are not implemented.
+- FMS boat data and audit records are in-memory only. The mock link is in-process; no network transport is implemented.
+
 ## Proposed delivery behaviour
+
+The table describes protocol-level proposals, not end-to-end guarantees already provided by the foundation above.
 
 | Concern | Proposal | Status |
 |---|---|---|
-| Duplicates | Receiver drops a `message_id` it has processed. The FMS keeps a bounded window (default 10,000 per boat). | PROPOSED |
-| Ordering | Sequence numbers are monotonic per sender. Out-of-order messages are processed and flagged. | PROPOSED |
-| Acknowledgement | Critical messages are acknowledged. The sender keeps unacknowledged commands for re-offer after reconnection. | PROPOSED |
-| Disconnection | The boat keeps outbound messages in a bounded queue (drop-oldest). The FMS refuses new commands for a boat when its queue is full. | PROPOSED, limits OPEN |
-| Refused messages | If the link refuses one message (not a connection failure), the boat drops it so the queue does not stall. | PROPOSED |
+| Duplicates | Receivers drop a processed `message_id`; define whether this also applies to repeated FMS-to-boat commands. | Partially implemented: bounded FMS inbound window; boat command de-duplication OPEN |
+| Ordering | Sequence numbers are monotonic per sender; specify how out-of-order traffic is handled. | Partially implemented: FMS audits and stores out-of-order boat messages; broader rules OPEN |
+| Acknowledgement | Critical messages are acknowledged, and senders retain them until the required acknowledgement is received. | Partially implemented: FMS replies to critical boat messages and holds commands until ACK; AI Box does not retain critical outbound messages until ACK |
+| Disconnection | Define queue limits, persistence and reconnect/re-offer behavior on both sides. | Partially implemented in memory; policies and FMS dispatcher OPEN |
+| Refused messages | Define retry/drop behavior for non-connection send failures. | AI Box drops non-connection send failures; end-to-end policy OPEN |
 | Stale data | Receivers keep the timestamp. Staleness thresholds are decided by consumers. | PROPOSED |
 | Schema compatibility | Strict models mean a new field needs a coordinated upgrade. Whether to allow additive changes is OPEN. | OPEN |
 | Transport | MQTT, WebSocket, ROS 2 bridge or another option is OPEN. | OPEN |
+
+## Verification coverage
+
+`tests/integration/test_boat_fms_roundtrip.py` exercises the mock-link round trip for assignment acceptance and rejection, cancellation, safe-state, unsupported commands, target-boat routing, telemetry/progress/event/health reception, disconnect/reconnect buffering and inbound ID/direction rejection. Contract tests cover malformed payloads, invalid timestamps, and unsupported schema majors. FMS endpoint tests cover duplicate and out-of-order boat messages, registered identities, acknowledgement correlation and queue behavior. These tests do not establish network delivery, authenticated boat identity, persistence, or physical collision avoidance.

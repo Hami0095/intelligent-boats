@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 
-from marine_contracts import Envelope, HealthStatus, make_envelope
+from marine_contracts import MESSAGE_SPECS, Direction, Envelope, HealthStatus, make_envelope
 
 from ai_box.core.events import FMS_INBOUND, FMS_OUTBOUND, Outbound
 from ai_box.core.ports import FmsLink
@@ -29,6 +29,7 @@ class FmsBridgeService(Service):
         self._limit = 1
         self._sequence = 0
         self._dropped = 0
+        self._inbound_rejected = 0
         self._send_failures = 0
 
     @property
@@ -89,11 +90,29 @@ class FmsBridgeService(Service):
             self._send_failures += 1
             return
         for envelope in inbound:
+            if envelope.boat_id != self._ctx.config.boat_id:
+                self._inbound_rejected += 1
+                log.error(
+                    "discarding inbound message %s addressed to boat %s on boat %s",
+                    envelope.message_id,
+                    envelope.boat_id,
+                    self._ctx.config.boat_id,
+                )
+                continue
+            if MESSAGE_SPECS[envelope.message_type].direction not in (Direction.FMS_TO_BOAT, Direction.EITHER):
+                self._inbound_rejected += 1
+                log.error("discarding inbound message %s with boat-to-FMS direction", envelope.message_id)
+                continue
             self._ctx.bus.publish(FMS_INBOUND, envelope)
 
     def health_detail(self) -> tuple[HealthStatus, str]:
+        details = []
         if self._dropped:
-            return HealthStatus.DEGRADED, f"{self._dropped} outbound message(s) dropped"
+            details.append(f"{self._dropped} outbound message(s) dropped")
+        if self._inbound_rejected:
+            details.append(f"{self._inbound_rejected} inbound message(s) rejected")
         if self._outbox:
-            return HealthStatus.DEGRADED, f"{len(self._outbox)} message(s) buffered while link unavailable"
+            details.append(f"{len(self._outbox)} message(s) buffered while link unavailable")
+        if details:
+            return HealthStatus.DEGRADED, "; ".join(details)
         return HealthStatus.OK, ""
