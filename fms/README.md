@@ -9,12 +9,14 @@ Layout (`src/fms/`):
 | `core/` | Boat identities (`fleet.py`) and the inbound endpoint (`endpoint.py`) |
 | `communication/` | In-memory outbound queue with acknowledgement tracking (`outbox.py`) |
 | `missions/` | Builds mission, cancellation and safe-state commands |
-| `data/` | Storage of boat-originated messages (in memory for now) |
+| `data/` | Storage of boat-originated messages (in memory for now); pure research latest-message read/ingest facade |
 | `logging/` | Audit trail |
 | `config/` | `FMS_*` environment configuration |
 
 The outbox exposes queued commands for a caller to deliver and retains them until a matching ACK, whether accepted or rejected. Re-enqueueing an identical pending envelope is a no-op; reusing its message ID for a different envelope is rejected without replacing the original. Unknown ACKs and ACKs from another registered boat do not clear a pending command and are recorded in the audit log; unregistered boat IDs are refused. There is not yet a runtime command dispatcher, timeout, or reconnect scheduler. The loopback integration tests deliver commands manually. Data and audit records are in memory.
 
 Scope of this phase: contracts, skeletons and tests. There is no dashboard, optimiser, or production backend. Persistence and the transport are OPEN decisions.
+
+The separate `fleet-dashboard` main demonstration still simulates its own vessels. The [research integration](../docs/RESEARCH_REST_INTEGRATION.md) connects existing Python AI Box reports through a loopback-only HTTP adapter to this FMS store and the dashboard's explicit REST mode. `data/research.py` returns only received envelopes; no-data collections are empty, and missing reports/positions stay null. Run `.venv/bin/python3 scripts/research_fms_server.py` from the repository root for the local prototype. It is not a production backend or command dispatcher.
 
 Run the tests from the repository root: `python -m pytest fms/tests`.

@@ -9,8 +9,9 @@ The Fleet Management System manages the boats. It talks to each boat individuall
 - The outbound queue of commands awaiting acknowledgement (`communication/outbox.py`).
 - Building mission, cancellation and safe-state commands (`missions/`).
 - Storing boat-originated data as received (`data/`), and an audit trail (`logging/`).
+- The pure research read/ingest facade (`data/research.py`) projects actual latest stored envelopes and missing values for an injected HTTP adapter; it performs no I/O and imports no adapter or AI Box implementation.
 
-Not in scope yet: a dashboard, a fleet optimiser, a production backend, a database, a transport.
+The existing TypeScript dashboard is separate. A research-only composition script connects its read API to this facade (ADR-0009); HTTP I/O remains in adapters. A fleet optimiser, production backend/database and production transport remain out of scope.
 
 ## Rules for this module
 

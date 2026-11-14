@@ -96,4 +96,8 @@ The table describes protocol-level proposals, not end-to-end guarantees already 
 
 ## Verification coverage
 
+### Research HTTP boundary
+
+The explicitly selected research adapter sends the existing envelope JSON to `POST /api/v1/boat-messages`; a valid HTTP response contains the FMS endpoint's actual reply envelopes in `replies`. HTTP 200 does not manufacture an accepted mission ACK. Read-only latest-message endpoints retain full raw envelopes and receipt timestamps; missing values remain unknown. No message fields or schema version change. This loopback development boundary is not authenticated identity, a production transport, a new retry system or a network command dispatcher. The main dashboard keeps its existing browser simulation. See [research integration guide](RESEARCH_REST_INTEGRATION.md) for exact routes, local source selection, validation and deployment restrictions.
+
 `tests/integration/test_boat_fms_roundtrip.py` exercises the mock-link round trip for assignment acceptance and rejection, cancellation, safe-state, unsupported commands, target-boat routing, telemetry/progress/event/health reception, disconnect/reconnect buffering and inbound ID/direction rejection. Contract tests cover malformed payloads, invalid timestamps, and unsupported schema majors. FMS endpoint tests cover duplicate and out-of-order boat messages, registered identities, acknowledgement correlation and queue behavior. These tests do not establish network delivery, authenticated boat identity, persistence, or physical collision avoidance.

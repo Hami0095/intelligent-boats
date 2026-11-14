@@ -51,3 +51,9 @@ Health reports use the service manager's lifecycle and service-level health deta
 ## Timestamps and time zones
 
 Current producers use timezone-aware UTC timestamps. Naive datetimes are rejected, but envelope validation currently accepts other timezone-aware offsets without normalization.
+
+## Research REST reporting (explicit opt-in)
+
+The unchanged AI Box bridge can send its existing envelopes through `RestFmsLink`. A loopback-only standard-library HTTP adapter validates JSON/direction and delegates to the existing FMS endpoint through a pure injected `ResearchFleet` facade. FMS keeps received envelopes and receipt times in its existing in-memory store; GET endpoints expose the latest six supported report families without invented fields. The research dashboard polls those reads and adapts message names/timestamps only for its existing view components. It never constructs browser mock boats or substitutes random reports. The ordinary main build continues using its original simulation.
+
+The demonstration uses two independent `MockPositionSource`/`MockPropulsionSink` pairs with explicit geographic and local fixtures. The positions are not a transform, and zero propulsion commands do not cause their scripted updates. A local scripted assignment exercises existing mission reporting; there is no REST mission-command dispatcher. See [research guide](RESEARCH_REST_INTEGRATION.md) and [ADR-0009](decisions/ADR-0009-research-rest-reporting.md).
