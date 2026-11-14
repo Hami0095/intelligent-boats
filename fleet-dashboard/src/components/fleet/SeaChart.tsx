@@ -9,7 +9,7 @@ const xy = (lat: number, lon: number) => ({ x: ((lon - C.lon) / SPAN_LON + 0.5) 
 export function SeaChart({ fleet, selected, onSelect }: { fleet: FleetController; selected: string; onSelect: (id: string) => void }) {
   const topLeft = xy(SEARCH_AREA.maxLat, SEARCH_AREA.minLon), bottomRight = xy(SEARCH_AREA.minLat, SEARCH_AREA.maxLon);
   const boat = fleet.boats.get(selected);
-  const coverage = boat?.delivery ? undefined : boat?.coverage.visited;
+  const coverage = fleet.coverage.visited;
   const delivery = boat?.mission?.status === "in_progress" ? boat.delivery : null;
   const destination = delivery?.phase === "returning" ? boat?.home : delivery ? fleet.latestState(delivery.recipientId)?.position : null;
   const position = fleet.latestState(selected)?.position;
@@ -21,7 +21,8 @@ export function SeaChart({ fleet, selected, onSelect }: { fleet: FleetController
       <svg viewBox="0 0 1000 600" className="sea-grid block aspect-[5/3] w-full">
         <path d="M0,0 L180,0 C160,90 120,140 60,200 C30,240 10,300 0,320 Z" className="fill-land" />
         <path d="M1000,600 L760,600 C800,520 880,500 920,430 C950,380 990,360 1000,350 Z" className="fill-land" />
-        {!boat?.delivery && boat && <polyline aria-label="Recorded recon route" points={boat.coverage.trail.map((p) => { const point = xy(p.latitude_deg, p.longitude_deg); return `${point.x},${point.y}`; }).join(" ")} className="fill-none stroke-accent/70" strokeWidth={1.5} />}
+        {[...fleet.boats.values()].map((b) => <polyline key={b.id} aria-label={`Recorded recon route ${b.id}`} points={b.coverage.trail.map((p) => { const point = xy(p.latitude_deg, p.longitude_deg); return `${point.x},${point.y}`; }).join(" ")} className={b.id === selected ? "fill-none stroke-accent/70" : "fill-none stroke-muted-foreground/40"} strokeWidth={1.5} />)}
+        {[...(fleet.coverage.sections.get(selected) ?? [])].map((index) => { const cell = cellBounds(index), a = xy(cell.maxLat, cell.minLon), b = xy(cell.minLat, cell.maxLon); return <rect key={`assigned-${index}`} x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y} className="fill-primary/10 stroke-primary/20" strokeWidth={0.5} />; })}
         {Array.from(coverage ?? []).map((index) => {
           const cell = cellBounds(index), a = xy(cell.maxLat, cell.minLon), b = xy(cell.minLat, cell.maxLon);
           return <rect key={index} x={a.x} y={a.y} width={b.x - a.x} height={b.y - a.y} className="fill-accent/25 stroke-accent/20" strokeWidth={0.5} />;
@@ -61,6 +62,7 @@ export function SeaChart({ fleet, selected, onSelect }: { fleet: FleetController
       <div className="flex flex-wrap gap-4 border-t border-border px-3 py-2 font-mono text-xs text-muted-foreground">
         <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-warning" />{fleet.obstacles.length} simulated obstacles</span>
         <span>Boat clearance · {BOAT_CLEARANCE_M} m</span>
+        <span className="text-accent">Searched · fleet</span><span className="text-primary">Assigned · selected boat</span>
       </div>
     </div>
   );

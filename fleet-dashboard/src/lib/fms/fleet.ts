@@ -3,6 +3,8 @@ import { AuditLog, FleetRegistry, FmsEndpoint, InMemoryFleetStore, MissionServic
 import { MockBoat } from "./mock-boat";
 import { DeliveryHistory } from "./delivery-history";
 import { createObstacles, type NavigationObstacle } from "./navigation";
+import { CoverageSearch, FleetCoverage } from "./search-area";
+import { connectionStatus, type ConnectionSource } from "./connection";
 
 export interface MissionRecord { mission_id: string; boat_id: string; objective: string; search_area_id: string; created_at: number }
 
@@ -12,6 +14,8 @@ export class FleetController {
   endpoint = new FmsEndpoint({ registry: this.registry, store: this.store, audit: this.audit, outbox: this.outbox });
   missions = new MissionService(this.registry, this.outbox);
   boats = new Map<string, MockBoat>();
+  coverage = new FleetCoverage();
+  private sources = new Map<string, ConnectionSource>();
   obstacles: NavigationObstacle[] = [];
   missionLog: MissionRecord[] = [];
   traffic: { at: number; dir: "in" | "out"; e: Envelope }[] = [];
@@ -25,6 +29,9 @@ export class FleetController {
       this.registry.register({ boat_id: id, display_name: name });
       this.boats.set(id, new MockBoat(id, { latitude_deg: base.latitude_deg + (i - 1.5) * 0.004, longitude_deg: base.longitude_deg - 0.01 }, (targetId) => this.boats.get(targetId)?.pos,
         () => [...this.obstacles, ...[...this.boats.values()].filter((b) => b.id !== id).map((b): NavigationObstacle => ({ id: b.id, position: b.pos, radiusM: 5, kind: "boat" }))]));
+      const boat = this.boats.get(id);
+      if (boat) boat.coverage = new CoverageSearch(this.coverage, id);
+      this.sources.set(id, "simulation");
     });
     this.obstacles = createObstacles([...this.boats.values()].map((b) => b.home), random);
   }
@@ -42,6 +49,12 @@ export class FleetController {
 
   tick() {
     const now = Date.now();
+    // Apply all commands before allocating work so simultaneous assignments
+    // receive distinct sections and stopped boats relinquish their work.
+    for (const boat of this.boats.values()) {
+      for (const cmd of this.outbox.unacknowledged(boat.id)) { this.log("out", cmd); this.deliverFromBoat(boat, boat.handle(cmd, now), now); }
+    }
+    this.coverage.allocate([...this.boats.values()].filter((b) => b.mode === "autonomous" && b.mission?.status === "in_progress" && !b.delivery));
     for (const boat of this.boats.values()) {
       this.deliverFromBoat(boat, boat.step(now), now);
       for (const cmd of this.outbox.unacknowledged(boat.id)) { this.log("out", cmd); this.deliverFromBoat(boat, boat.handle(cmd, now), now); }
@@ -75,4 +88,8 @@ export class FleetController {
   safeState(boatId: string, a: SafeStateAction) { this.missions.safeState(boatId, a, "operator"); this.audit.record(Date.now(), "command", boatId, `safe state: ${a}`); this.emit(); }
 
   latestState(boatId: string) { return this.store.latest(boatId, "boat_state")?.envelope.payload as BoatStatePayload | undefined; }
+  connection(boatId: string, now = Date.now()) {
+    this.registry.require(boatId);
+    return connectionStatus(this.sources.get(boatId) ?? "simulation", this.store.latest(boatId, "boat_state")?.received_at ?? null, now);
+  }
 }

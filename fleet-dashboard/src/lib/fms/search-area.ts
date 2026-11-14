@@ -34,10 +34,29 @@ function cellAt(p: GeoPosition) {
   return row * SEARCH_AREA.columns + col;
 }
 
+/** Repartition unsearched row bands whenever the active recon fleet changes. */
+export class FleetCoverage {
+  visited = new Set<number>();
+  sections = new Map<string, Set<number>>();
+  allocate(boats: { id: string; pos: GeoPosition }[]) {
+    const ordered = [...boats].sort((a, b) => a.pos.latitude_deg - b.pos.latitude_deg || a.id.localeCompare(b.id));
+    this.sections.clear();
+    ordered.forEach((boat) => this.sections.set(boat.id, new Set()));
+    for (let cell = 0; cell < SEARCH_CELL_COUNT; cell++) {
+      if (this.visited.has(cell)) continue;
+      const row = Math.floor(cell / SEARCH_AREA.columns);
+      const owner = ordered[Math.min(ordered.length - 1, Math.floor(row * ordered.length / SEARCH_AREA.rows))];
+      if (owner) this.sections.get(owner.id)?.add(cell);
+    }
+  }
+}
+
 /** Visit unsearched lane cells; coverage and travel stay in memory for this boat. */
 export class CoverageSearch {
   visited = new Set<number>();
   trail: GeoPosition[] = [];
+  constructor(private shared?: FleetCoverage, private boatId = "") {}
+  private record(p: GeoPosition) { const cell = cellAt(p); this.visited.add(cell); this.shared?.visited.add(cell); }
   private targetIndex = 0;
   private targets = Array.from({ length: SEARCH_CELL_COUNT }, (_, i) => {
     const row = Math.floor(i / SEARCH_AREA.columns), offset = i % SEARCH_AREA.columns;
@@ -48,7 +67,7 @@ export class CoverageSearch {
 
   advance(position: GeoPosition, distanceM: number, steer?: (from: GeoPosition, target: GeoPosition, metres: number) => { position: GeoPosition; heading: number }) {
     let p = clampToSearchArea(position), remaining = Math.max(0, distanceM), heading = 0;
-    this.visited.add(cellAt(p));
+    this.record(p);
     if (this.trail.length === 0) this.trail.push({ ...p });
     while (remaining > 0) {
       // Covered destinations are never selected again. Transit may still cross
@@ -56,7 +75,7 @@ export class CoverageSearch {
       let examined = 0;
       while (examined < this.targets.length) {
         const candidate = this.targets[this.targetIndex];
-        if (candidate && !this.visited.has(cellAt(candidate))) break;
+        if (candidate && !(this.shared?.visited ?? this.visited).has(cellAt(candidate)) && (!this.shared || this.shared.sections.get(this.boatId)?.has(cellAt(candidate)))) break;
         this.targetIndex = (this.targetIndex + 1) % this.targets.length;
         examined++;
       }
@@ -67,7 +86,7 @@ export class CoverageSearch {
       const east = (target.longitude_deg - p.longitude_deg) * lonMetres;
       const distance = Math.hypot(north, east);
       if (distance < 0.00001) {
-        this.visited.add(cellAt(target));
+        this.record(target);
         this.targetIndex = (this.targetIndex + 1) % this.targets.length;
         continue;
       }
@@ -81,7 +100,7 @@ export class CoverageSearch {
         if (moved < 0.001) this.targetIndex = (this.targetIndex + 1) % this.targets.length;
       } else p = clampToSearchArea({ latitude_deg: p.latitude_deg + (target.latitude_deg - p.latitude_deg) * travel / distance,
         longitude_deg: p.longitude_deg + (target.longitude_deg - p.longitude_deg) * travel / distance });
-      this.visited.add(cellAt(p));
+      this.record(p);
       const last = this.trail.at(-1);
       if (!last || last.latitude_deg !== p.latitude_deg || last.longitude_deg !== p.longitude_deg) this.trail.push({ ...p });
       remaining -= travel;

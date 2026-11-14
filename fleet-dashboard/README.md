@@ -16,7 +16,9 @@ Open the local address printed by Vite. Run tests with `bun run test` and create
 ## Included
 
 - Four simulated boats with position, battery, telemetry and command acknowledgements.
-- Independent recon inside search area A; unique visited-cell coverage and a recorded chart trail.
+- Independent recon inside search area A; fleet-wide shared visited-cell coverage, distinct unsearched sections for active boats and recorded per-boat chart trails.
+- Live reassignment of remaining search work when boats stop or switch missions.
+- Per-boat connection source, last telemetry update time and a stale-data warning after 10 seconds. Current boats are explicitly labeled simulation, not real AI-box connections.
 - Searched targets are skipped; boats hold after full coverage without completing the mission. Recon reassignment retains coverage in memory. Necessary transit or safety returns may cross visited water.
 - Three simulated hazards and shared A* collision avoidance for search, delivery and home returns.
 - Simulated delivery to a moving recipient, nearby automatic handoff, then own-home return.

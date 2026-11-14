@@ -5,6 +5,7 @@ import { activityLabel, modeTone, pct } from "./format";
 import { SEARCH_AREA_KM2 } from "@/lib/fms/search-area";
 import { distanceMetres } from "@/lib/fms/delivery";
 import { Button } from "@/components/ui/button";
+import { ConnectionStatus } from "./ConnectionStatus";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return <div><div className="panel-title">{label}</div><div className="mt-1 font-mono text-lg">{value}</div></div>;
@@ -35,6 +36,7 @@ export function BoatPanel({ fleet, boatId }: { fleet: FleetController; boatId: s
         <div><div className="text-xl font-semibold">{id.display_name}</div><div className="font-mono text-xs text-muted-foreground">{boatId}</div></div>
         <div className={`font-mono text-sm ${s ? modeTone[s.operating_mode] : ""}`}>{s ? activityLabel(s.operating_mode, delivery) : "No signal"}</div>
       </div>
+      <ConnectionStatus fleet={fleet} boatId={boatId} />
       <div className="grid grid-cols-3 gap-4">
         <Stat label="Battery" value={pct(s?.battery_state_of_charge)} />
         <Stat label="Speed" value={s?.speed_over_ground_mps != null ? `${s.speed_over_ground_mps.toFixed(1)} m/s` : "—"} />
@@ -42,7 +44,8 @@ export function BoatPanel({ fleet, boatId }: { fleet: FleetController; boatId: s
       </div>
       <div>
         {!delivery && <>
-        <div className="flex justify-between"><span className="panel-title">Simulated area coverage</span><span className="font-mono text-xs">{pct(env?.coverage_fraction)}</span></div>
+        <div className="flex justify-between"><span className="panel-title">Boat visited coverage</span><span className="font-mono text-xs">{pct(env?.coverage_fraction)}</span></div>
+        <div className="mt-1 font-mono text-xs text-primary">{fleet.coverage.sections.get(boatId)?.size ?? 0} unsearched cells assigned</div>
         <div className="mt-2 h-1.5 rounded-full bg-muted"><div className="h-full rounded-full bg-accent transition-all" style={{ width: pct(env?.coverage_fraction ?? 0) }} /></div>
         <div className="mt-2 font-mono text-xs text-muted-foreground">{((env?.coverage_fraction ?? 0) * SEARCH_AREA_KM2).toFixed(2)} / {SEARCH_AREA_KM2.toFixed(2)} km² · {env?.searched_region_count ?? 0} / {env?.known_region_count ?? 240} cells visited</div>
         </>}

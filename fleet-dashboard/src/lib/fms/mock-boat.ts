@@ -85,7 +85,7 @@ export class MockBoat {
       this.searched = this.coverage.visited.size;
       this.mission.fraction = this.searched / this.known;
       if (this.tick % 3 === 0)
-        out.push(this.env("mission_progress", { status: "in_progress", completion_fraction: this.mission.fraction, detail: this.mission.fraction >= 1 ? "Area covered; holding position without repeating search" : "Independent recon; targeting unsearched cells" }, now));
+        out.push(this.env("mission_progress", { status: "in_progress", completion_fraction: this.mission.fraction, detail: this.speed === 0 ? "Holding; no reachable unsearched target in assigned section" : "Independent recon; targeting fleet-unsearched cells" }, now));
     }
     if (this.battery < 0.15 && this.mode === "autonomous") {
       this.mode = "returning_home";
