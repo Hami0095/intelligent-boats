@@ -3,6 +3,7 @@ import { makeEnvelope, type Envelope, type GeoPosition, type MessageType, type M
 import { CoverageSearch, SEARCH_CELL_COUNT, clampToSearchArea } from "./search-area";
 import { distanceMetres, HANDOFF_DISTANCE_M, type DeliveryState } from "./delivery";
 import { navigate, type NavigationObstacle } from "./navigation";
+import { simulatedWaterTemperature } from "./temperature";
 
 /** Browser stand-in for an AI box built from mock adapters. */
 export class MockBoat {
@@ -95,7 +96,7 @@ export class MockBoat {
       }
       out.push(this.env("operational_event", { severity: "warning", code: "battery.low", message: "Battery below 15%, returning home" }, now));
     }
-    out.push(this.env("boat_state", { operating_mode: this.mode, position: this.pos, speed_over_ground_mps: this.speed, heading_deg: this.heading, battery_state_of_charge: this.battery }, now));
+    out.push(this.env("boat_state", { operating_mode: this.mode, position: this.pos, speed_over_ground_mps: this.speed, heading_deg: this.heading, battery_state_of_charge: this.battery, water_temperature_c: simulatedWaterTemperature(this.pos) }, now));
     if (this.tick % 2 === 0) {
       this.tracks = this.surroundings().filter((o) => distanceMetres(this.pos, o.position) < 200).map((o) => {
         const range = distanceMetres(this.pos, o.position);

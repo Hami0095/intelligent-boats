@@ -8,6 +8,7 @@ import { activityLabel, modeTone, pct } from "@/components/fleet/format";
 import { ConnectionStatus } from "@/components/fleet/ConnectionStatus";
 import { Button } from "@/components/ui/button";
 import { SEARCH_AREA_KM2, SEARCH_CELL_COUNT } from "@/lib/fms/search-area";
+import { TemperatureLog } from "@/components/fleet/TemperatureLog";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -55,6 +56,7 @@ function Index() {
             <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">{boats.map((b) => <span key={b.boat_id}>{b.display_name}: {fleet.coverage.sections.get(b.boat_id)?.size ?? 0} cells assigned</span>)}</div>
           </section>
           <SeaChart fleet={fleet} selected={selected} onSelect={setSelected} />
+          <TemperatureLog fleet={fleet} />
           <Logs fleet={fleet} />
         </div>
         <BoatPanel key={selected} fleet={fleet} boatId={selected} />

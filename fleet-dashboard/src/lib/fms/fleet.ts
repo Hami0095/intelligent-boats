@@ -5,6 +5,7 @@ import { DeliveryHistory } from "./delivery-history";
 import { createObstacles, type NavigationObstacle } from "./navigation";
 import { CoverageSearch, FleetCoverage } from "./search-area";
 import { connectionStatus, type ConnectionSource } from "./connection";
+import { TemperatureLog } from "./temperature";
 
 export interface MissionRecord { mission_id: string; boat_id: string; objective: string; search_area_id: string; created_at: number }
 
@@ -15,6 +16,8 @@ export class FleetController {
   missions = new MissionService(this.registry, this.outbox);
   boats = new Map<string, MockBoat>();
   coverage = new FleetCoverage();
+  temperatures = new TemperatureLog();
+  private lastTemperatureSample = new Map<string, number>();
   private sources = new Map<string, ConnectionSource>();
   obstacles: NavigationObstacle[] = [];
   missionLog: MissionRecord[] = [];
@@ -59,6 +62,7 @@ export class FleetController {
       this.deliverFromBoat(boat, boat.step(now), now);
       for (const cmd of this.outbox.unacknowledged(boat.id)) { this.log("out", cmd); this.deliverFromBoat(boat, boat.handle(cmd, now), now); }
       this.trackDelivery(boat.id, now);
+      if (now - (this.lastTemperatureSample.get(boat.id) ?? -Infinity) >= 10000) this.recordTemperature(boat.id, now, false);
     }
     this.emit();
   }
@@ -88,6 +92,13 @@ export class FleetController {
   safeState(boatId: string, a: SafeStateAction) { this.missions.safeState(boatId, a, "operator"); this.audit.record(Date.now(), "command", boatId, `safe state: ${a}`); this.emit(); }
 
   latestState(boatId: string) { return this.store.latest(boatId, "boat_state")?.envelope.payload as BoatStatePayload | undefined; }
+  recordTemperature(boatId: string, now = Date.now(), notify = true) {
+    const state = this.latestState(boatId), connection = this.connection(boatId, now);
+    if (!state?.position || state.water_temperature_c == null || connection.state !== "live" || connection.lastUpdate == null) return false;
+    const recorded = this.temperatures.record({ boatId, celsius: state.water_temperature_c, at: connection.lastUpdate, position: state.position, source: connection.source });
+    if (recorded) { this.lastTemperatureSample.set(boatId, now); if (notify) this.emit(); }
+    return recorded;
+  }
   connection(boatId: string, now = Date.now()) {
     this.registry.require(boatId);
     return connectionStatus(this.sources.get(boatId) ?? "simulation", this.store.latest(boatId, "boat_state")?.received_at ?? null, now);

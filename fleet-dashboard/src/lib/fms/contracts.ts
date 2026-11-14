@@ -29,6 +29,7 @@ export interface GeoPosition { latitude_deg: number; longitude_deg: number }
 export interface BoatStatePayload {
   operating_mode: OperatingMode; position: GeoPosition | null;
   speed_over_ground_mps: number | null; heading_deg: number | null; battery_state_of_charge: number | null;
+  water_temperature_c?: number | null;
 }
 export interface MissionProgressPayload { status: MissionStatus; completion_fraction: number | null; detail: string }
 export interface ObstacleTrack { track_id: string; category: string; relative_bearing_deg: number; range_m: number | null; collision_risk: number | null; confidence: number }
