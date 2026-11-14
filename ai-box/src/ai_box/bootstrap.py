@@ -82,7 +82,7 @@ def build_boat(
         position=position,
         operating=operating,
         health_provider=app.health_report,
-        progress_provider=missions.progress,
+        progress_provider=missions.environment_progress_report,
         battery_provider=battery_provider,
     )
     bridge = FmsBridgeService(fms_link)

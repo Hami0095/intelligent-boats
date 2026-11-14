@@ -14,6 +14,7 @@ from ai_box.config.settings import AIBoxConfig
 from ai_box.core.events import FMS_OUTBOUND, Outbound
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import Detection, SensorKind, SensorSample
+from ai_box.environment.knowledge import RegionStatus
 from ai_box.environment.model import SearchArea
 from ai_box.motion.commands import NavigationGoal, PropulsionCommand, VehicleState
 from ai_box.services.command_router import NOT_IMPLEMENTED_NAV
@@ -29,6 +30,7 @@ from marine_contracts import (
     ConfigurationUpdatePayload,
     Envelope,
     GeoPosition,
+    HealthStatus,
     MessageType,
     MissionAssignmentPayload,
     MissionCancellationPayload,
@@ -99,8 +101,40 @@ def test_boat_state_telemetry_reaches_the_fms(world):
     world.runtime.app.tick()
     latest = world.store.latest(BOAT, MessageType.BOAT_STATE)
     assert latest is not None
+    assert latest.envelope.boat_id == BOAT
+    assert latest.envelope.mission_id is None
     assert latest.payload.operating_mode is OperatingMode.IDLE
     assert latest.payload.position == GeoPosition(latitude_deg=59.3, longitude_deg=18.0)
+
+
+def test_missing_boat_state_measurements_remain_unknown_in_fms_storage(world):
+    world.position.set_state(None)
+    world.runtime.app.tick()
+
+    latest = world.store.latest(BOAT, MessageType.BOAT_STATE)
+    assert latest is not None
+    assert latest.payload.position is None
+    assert latest.payload.position_uncertainty_m is None
+    assert latest.payload.speed_over_ground_mps is None
+    assert latest.payload.heading_deg is None
+    assert latest.payload.battery_state_of_charge is None
+
+    world.position.set_state(
+        VehicleState(
+            timestamp=NOW,
+            position_uncertainty_m=0.0,
+            speed_over_ground_mps=0.0,
+            heading_deg=0.0,
+        )
+    )
+    world.runtime.app.tick()
+
+    latest = world.store.latest(BOAT, MessageType.BOAT_STATE)
+    assert latest is not None
+    assert latest.payload.position_uncertainty_m == 0.0
+    assert latest.payload.speed_over_ground_mps == 0.0
+    assert latest.payload.heading_deg == 0.0
+    assert latest.payload.battery_state_of_charge is None
 
 
 def test_mission_assignment_is_accepted_and_the_boat_starts_searching(world):
@@ -140,7 +174,18 @@ def test_mission_assignment_is_accepted_and_the_boat_starts_searching(world):
         for entry in world.audit.entries()
         if entry.category == "ack"
     )
-    assert world.store.latest(BOAT, MessageType.ENVIRONMENT_PROGRESS) is not None
+    environment_progress = world.store.latest(BOAT, MessageType.ENVIRONMENT_PROGRESS)
+    assert environment_progress is not None
+    assert environment_progress.envelope.boat_id == BOAT
+    assert environment_progress.envelope.mission_id == "m-1"
+    assert environment_progress.payload.searched_region_count == 0
+    assert environment_progress.payload.coverage_fraction == 0.0
+    mission = world.runtime.missions.active_mission
+    assert mission is not None
+    visited = world.runtime.knowledge.region(mission.regions[0])
+    assert visited.status is RegionStatus.VISITED
+    assert visited.visit_count > 0 and visited.search_count == 0
+    assert world.runtime.knowledge.region(mission.regions[1]).status is RegionStatus.UNKNOWN
     assert world.outbox.unacknowledged(BOAT) == ()  # the boat's acknowledgement cleared the FMS queue
 
 
@@ -419,7 +464,13 @@ def test_operational_events_and_service_health_reach_the_fms(world: SimpleNamesp
     health = world.store.latest(BOAT, MessageType.SERVICE_HEALTH)
     assert stored_event is not None and stored_event.payload == event
     assert health is not None
-    assert any(service.name == "fms-bridge" for service in health.payload.services)
+    assert stored_event.envelope.boat_id == BOAT
+    assert stored_event.envelope.mission_id is None
+    assert health.envelope.boat_id == BOAT
+    assert health.envelope.mission_id is None
+    services = {service.name: service for service in health.payload.services}
+    assert services["fms-bridge"].status is HealthStatus.OK
+    assert services["telemetry"].status is HealthStatus.OK
 
 
 def test_outbound_buffer_drops_oldest_message_and_flushes_remaining_in_order(world: SimpleNamespace) -> None:
@@ -461,7 +512,17 @@ def test_boat_retargets_once_it_reaches_its_goal(world):
 
     second_target = world.runtime.motion.goal.target
     assert second_target != first_target
-    assert world.runtime.knowledge.region(world.runtime.missions.active_mission.regions[0]).visit_count >= 1
+    mission = world.runtime.missions.active_mission
+    assert mission is not None
+    records = [world.runtime.knowledge.region(region) for region in mission.regions]
+    assert sum(record.visit_count for record in records) >= 2
+    assert any(record.status is RegionStatus.VISITED for record in records)
+    assert all(record.search_count == 0 for record in records)
+    environment_progress = world.store.latest(BOAT, MessageType.ENVIRONMENT_PROGRESS)
+    assert environment_progress is not None
+    assert environment_progress.envelope.mission_id == "m-1"
+    assert environment_progress.payload.known_region_count >= 2
+    assert environment_progress.payload.searched_region_count == 0
 
 
 def test_safe_state_command_stops_propulsion_and_is_acknowledged(world):

@@ -49,7 +49,7 @@ class TelemetryService(Service):
         position: PositionSource,
         operating: OperatingState,
         health_provider: Callable[[], list[ServiceHealthEntry]],
-        progress_provider: Callable[[], EnvironmentProgressPayload | None] | None = None,
+        progress_provider: Callable[[], tuple[str, EnvironmentProgressPayload] | None] | None = None,
         battery_provider: Callable[[], float | None] | None = None,
     ) -> None:
         self._position = position
@@ -75,13 +75,14 @@ class TelemetryService(Service):
         self._publish(MessageType.BOAT_STATE, state_payload)
 
         if self._progress_provider is not None:
-            progress = self._progress_provider()
-            if progress is not None:
-                self._publish(MessageType.ENVIRONMENT_PROGRESS, progress)
+            report = self._progress_provider()
+            if report is not None:
+                mission_id, progress = report
+                self._publish(MessageType.ENVIRONMENT_PROGRESS, progress, mission_id=mission_id)
 
         if self._ticks % HEALTH_EVERY_N_TICKS == 0:
             self._publish(MessageType.SERVICE_HEALTH, ServiceHealthPayload(services=self._health_provider()))
 
-    def _publish(self, message_type: MessageType, payload: BaseModel) -> None:
+    def _publish(self, message_type: MessageType, payload: BaseModel, mission_id: str | None = None) -> None:
         assert self._ctx is not None
-        self._ctx.bus.publish(FMS_OUTBOUND, Outbound(message_type=message_type, payload=payload))
+        self._ctx.bus.publish(FMS_OUTBOUND, Outbound(message_type=message_type, payload=payload, mission_id=mission_id))

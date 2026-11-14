@@ -98,16 +98,23 @@ class SearchMissionService(Service):
         return True
 
     def progress(self) -> EnvironmentProgressPayload | None:
+        report = self.environment_progress_report()
+        return report[1] if report is not None else None
+
+    def environment_progress_report(self) -> tuple[str, EnvironmentProgressPayload] | None:
         mission = self._active
         if mission is None:
             return None
         searched = sum(1 for r in mission.regions if self._knowledge.region(r).status is RegionStatus.SEARCHED)
         total = len(mission.regions)
-        return EnvironmentProgressPayload(
-            searched_region_count=searched,
-            known_region_count=self._knowledge.known_region_count(),
-            coverage_fraction=(searched / total) if total else None,
-            last_observation_at=self._knowledge.last_observation_at(),
+        return (
+            mission.mission_id,
+            EnvironmentProgressPayload(
+                searched_region_count=searched,
+                known_region_count=self._knowledge.known_region_count(),
+                coverage_fraction=(searched / total) if total else None,
+                last_observation_at=self._knowledge.last_observation_at(),
+            ),
         )
 
     def tick(self) -> None:
