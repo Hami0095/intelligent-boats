@@ -27,7 +27,7 @@ from ai_box.core.events import FMS_INBOUND, FMS_OUTBOUND, Outbound
 from ai_box.core.service import Service, ServiceContext
 from ai_box.core.state import OperatingState
 from ai_box.decision.mission import SearchMissionService
-from ai_box.motion.service import MotionService
+from ai_box.motion.service import MotionFault, MotionService
 
 log = logging.getLogger("ai_box.commands")
 
@@ -81,7 +81,14 @@ class CommandRouter(Service):
             if not isinstance(payload, MissionCancellationPayload):
                 raise TypeError(f"expected MissionCancellationPayload, got {type(payload).__name__}")
             assert envelope.mission_id is not None
-            if self._missions.cancel(envelope.mission_id):
+            try:
+                cancelled = self._missions.cancel(envelope.mission_id)
+            except MotionFault as exc:
+                reason = f"mission cancelled locally; zero command failed: {exc}"[:512]
+                self._ack(envelope, accepted=False, reason=reason)
+                self._progress(envelope.mission_id, MissionStatus.ABORTED, reason)
+                return
+            if cancelled:
                 self._operating.set_mode(OperatingMode.IDLE)
                 self._ack(envelope, accepted=True)
                 self._progress(envelope.mission_id, MissionStatus.ABORTED, payload.reason)
@@ -95,11 +102,19 @@ class CommandRouter(Service):
             if payload.action is SafeStateAction.RETURN_HOME:
                 self._ack(envelope, accepted=False, reason=NOT_IMPLEMENTED_RETURN)
                 return
-            if envelope.mission_id is not None:
-                self._missions.cancel(envelope.mission_id)
-            self._motion.safe_stop()
             self._operating.set_mode(OperatingMode.SAFE_STATE)
-            self._ack(envelope, accepted=True)
+            self._motion.inhibit()
+            active = self._missions.active_mission
+            matches_active = active is not None and active.mission_id == envelope.mission_id
+            try:
+                cancelled = envelope.mission_id is not None and self._missions.cancel(envelope.mission_id)
+                if not cancelled:
+                    self._motion.safe_stop()
+            except MotionFault as exc:
+                detail = "mission cancelled locally; " if matches_active else ""
+                self._ack(envelope, accepted=False, reason=f"{detail}zero command failed: {exc}"[:512])
+            else:
+                self._ack(envelope, accepted=True)
         elif envelope.message_type is MessageType.CONFIGURATION_UPDATE:
             self._ack(envelope, accepted=False, reason=NOT_IMPLEMENTED_CONFIG)
         else:  # pragma: no cover - the registry guarantees exhaustive handling

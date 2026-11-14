@@ -1,5 +1,6 @@
 """End-to-end: a boat built from mock adapters, talking to a real FMS endpoint over a loopback link."""
 
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -13,7 +14,7 @@ from ai_box.config.settings import AIBoxConfig
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import Detection, SensorKind, SensorSample
 from ai_box.environment.model import SearchArea
-from ai_box.motion.commands import VehicleState
+from ai_box.motion.commands import NavigationGoal, PropulsionCommand, VehicleState
 from ai_box.services.command_router import NOT_IMPLEMENTED_NAV
 from fms.communication.outbox import Outbox
 from fms.core.endpoint import FmsEndpoint
@@ -23,15 +24,19 @@ from fms.logging.audit import AuditLog
 from fms.missions.service import MissionService as FmsMissionService
 from marine_contracts import (
     BoatStatePayload,
+    Envelope,
     GeoPosition,
     MessageType,
     MissionAssignmentPayload,
+    MissionCancellationPayload,
     MissionStatus,
     NavigationGoalPayload,
     OperatingMode,
     SafeStateAction,
+    SafeStateCommandPayload,
     make_envelope,
 )
+from pydantic import BaseModel
 
 NOW = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
 BOAT = "boat-01"
@@ -246,3 +251,162 @@ def test_simulator_adapter_failure_degrades_the_boat_without_crashing_it(world):
         runtime.app.shutdown()
     assert ingest.status.value == "degraded"
     assert "poll error" in ingest.detail
+
+
+class _FixedOutputController:
+    def compute(self, goal: NavigationGoal | None, state: VehicleState | None, now: datetime) -> PropulsionCommand:
+        if goal is None:
+            return PropulsionCommand.stop(now)
+        return PropulsionCommand(timestamp=now, thrust=0.25, rudder=0.1)
+
+
+class _SwitchableStopSink(MockPropulsionSink):
+    fail_zero = False
+    zero_attempts = 0
+
+    def apply(self, command: PropulsionCommand) -> None:
+        if command.thrust == 0.0 and command.rudder == 0.0:
+            self.zero_attempts += 1
+            if self.fail_zero:
+                raise ConnectionError("recording sink rejected zero")
+        super().apply(command)
+
+
+@pytest.fixture
+def moving(world: SimpleNamespace) -> Iterator[SimpleNamespace]:
+    sink = _SwitchableStopSink()
+    boat = build_boat(
+        AIBoxConfig(boat_id=BOAT),
+        position=world.position,
+        propulsion=sink,
+        fms_link=world.link,
+        search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
+        controller=_FixedOutputController(),
+    )
+    with boat.app:
+        world.fms_missions.assign(BOAT, "m-1", MissionAssignmentPayload(objective="test", search_area_id="area-1"))
+        _deliver_pending_commands(world)
+        for _ in range(3):
+            boat.app.tick()
+        assert sink.last.thrust == 0.25
+        try:
+            yield SimpleNamespace(boat=boat, sink=sink, world=world)
+        finally:
+            sink.fail_zero = False
+
+
+def _command(moving: SimpleNamespace, kind: MessageType, payload: BaseModel, mission_id: str | None = None) -> Envelope:
+    command = make_envelope(
+        boat_id=BOAT, message_type=kind, payload=payload, mission_id=mission_id, sequence_number=0, timestamp=NOW
+    )
+    moving.world.link.deliver([command])
+    moving.boat.bridge.tick()
+    return command
+
+
+def _ack_message(moving: SimpleNamespace, command: Envelope) -> str:
+    return next(
+        e.message for e in moving.world.audit.entries() if e.category == "ack" and str(command.message_id) in e.message
+    )
+
+
+@pytest.mark.parametrize("mission_id", [None, "m-1", "other"])
+@pytest.mark.parametrize("action", [SafeStateAction.STOP_PROPULSION, SafeStateAction.HOLD_POSITION])
+@pytest.mark.parametrize("fail_zero", [False, True])
+def test_safe_state_inhibits_regenerated_and_forced_goals(
+    moving: SimpleNamespace, mission_id: str | None, action: SafeStateAction, fail_zero: bool
+) -> None:
+    moving.sink.fail_zero = fail_zero
+    attempts = moving.sink.zero_attempts
+    command = _command(moving, MessageType.SAFE_STATE_COMMAND, SafeStateCommandPayload(action=action), mission_id)
+    assert moving.sink.zero_attempts == attempts + 1
+    assert moving.boat.motion.inhibited
+    assert moving.boat.operating.mode is OperatingMode.SAFE_STATE
+    assert (moving.boat.missions.active_mission is None) == (mission_id == "m-1")
+    moving.sink.fail_zero = False
+    start = len(moving.sink.commands)
+    for _ in range(3):
+        moving.boat.app.tick()
+    if mission_id == "m-1":
+        assert moving.boat.motion.goal is None
+    else:
+        assert moving.boat.motion.goal is not None
+        assert moving.boat.motion.goal.goal_id.startswith("m-1:")
+    moving.boat.motion.set_goal(NavigationGoal(goal_id="forced", target=LocalPoint(50.0, 50.0)))
+    for _ in range(3):
+        moving.boat.app.tick()
+    assert all(c.thrust == 0.0 and c.rudder == 0.0 for c in moving.sink.commands[start:])
+    assert moving.boat.operating.mode is OperatingMode.SAFE_STATE
+    assert ("rejected" if fail_zero else "accepted") in _ack_message(moving, command)
+    if fail_zero and mission_id == "m-1":
+        assert "cancelled locally" in _ack_message(moving, command)
+
+
+def test_inhibited_assignment_is_rejected_directly_and_through_fms(moving: SimpleNamespace) -> None:
+    _command(
+        moving, MessageType.SAFE_STATE_COMMAND, SafeStateCommandPayload(action=SafeStateAction.STOP_PROPULSION), "m-1"
+    )
+    assert "inhibited" in moving.boat.missions.assign("m-2", "area-1")
+    command = _command(
+        moving,
+        MessageType.MISSION_ASSIGNMENT,
+        MissionAssignmentPayload(objective="test", search_area_id="area-1"),
+        "m-2",
+    )
+    moving.boat.app.tick()
+    assert "rejected" in _ack_message(moving, command)
+    assert "inhibited" in _ack_message(moving, command)
+    assert moving.boat.missions.active_mission is None
+    assert moving.boat.operating.mode is OperatingMode.SAFE_STATE
+    assert moving.sink.last.thrust == 0.0
+
+
+@pytest.mark.parametrize("fail_zero", [False, True])
+def test_cancellation_cleans_up_and_reports_stop_delivery(moving: SimpleNamespace, fail_zero: bool) -> None:
+    moving.sink.fail_zero = fail_zero
+    attempts = moving.sink.zero_attempts
+    command = _command(moving, MessageType.MISSION_CANCELLATION, MissionCancellationPayload(reason="test"), "m-1")
+    assert moving.sink.zero_attempts == attempts + 1
+    assert moving.boat.missions.active_mission is None
+    assert moving.boat.motion.goal is None
+    assert moving.boat.motion.inhibited is fail_zero
+    assert moving.boat.operating.mode is (OperatingMode.AUTONOMOUS if fail_zero else OperatingMode.IDLE)
+    if not fail_zero:
+        assert moving.sink.last.thrust == 0.0 and moving.sink.last.rudder == 0.0
+    moving.sink.fail_zero = False
+    moving.boat.app.tick()
+    ack = _ack_message(moving, command)
+    assert ("rejected" if fail_zero else "accepted") in ack
+    if fail_zero:
+        assert "cancelled locally" in ack and "zero command failed" in ack
+    assert moving.world.store.latest(BOAT, MessageType.MISSION_PROGRESS).payload.status is MissionStatus.ABORTED
+
+
+def test_mismatching_cancellation_does_not_stop_or_clear_the_active_mission(moving: SimpleNamespace) -> None:
+    attempts = moving.sink.zero_attempts
+    command = _command(moving, MessageType.MISSION_CANCELLATION, MissionCancellationPayload(reason="test"), "other")
+    assert moving.sink.zero_attempts == attempts
+    assert moving.boat.missions.active_mission.mission_id == "m-1"
+    assert not moving.boat.motion.inhibited
+    moving.boat.bridge.tick()
+    assert "rejected" in _ack_message(moving, command)
+
+
+def test_shutdown_completes_mission_cleanup_when_zero_delivery_fails(moving: SimpleNamespace) -> None:
+    moving.sink.fail_zero = True
+    moving.boat.app.shutdown()
+    assert moving.boat.missions.active_mission is None
+    assert moving.boat.motion.inhibited
+    assert moving.boat.motion.health_detail()[0].value == "degraded"
+
+
+def test_restarting_services_cannot_rearm_motion(moving: SimpleNamespace) -> None:
+    moving.boat.app.shutdown()
+    moving.boat.app.start()
+    assert "inhibited" in moving.boat.missions.assign("m-2", "area-1")
+    start = len(moving.sink.commands)
+    moving.boat.motion.set_goal(NavigationGoal(goal_id="restart", target=LocalPoint(50.0, 50.0)))
+    for _ in range(3):
+        moving.boat.app.tick()
+    assert moving.boat.motion.inhibited
+    assert all(c.thrust == 0.0 and c.rudder == 0.0 for c in moving.sink.commands[start:])

@@ -15,12 +15,14 @@ This document traces how data moves through the system. It complements `SYSTEM_A
 1. The FMS `MissionService` creates an envelope, assigns a sequence number, and queues it in the FMS outbox until acknowledged.
 2. The transport delivers it to the boat. The bridge receives it and publishes it on `fms.inbound`.
 3. `command-router` validates the message and acts:
-   - mission assignment: `search-mission` records the mission and its candidate regions;
-   - cancellation: clears the mission;
-   - safe-state command: stops propulsion and sets the operating mode;
+   - mission assignment: `search-mission` rejects assignments while motion is inhibited; otherwise records the mission and its candidate regions;
+   - cancellation: clears the matching mission before immediately attempting zero; successful ordinary cancellation does not latch inhibition;
+   - supported safe-state command: sets SAFE_STATE and latches motion inhibition before fallible cancellation/stop I/O; mission cancellation still requires a matching supplied ID;
    - unsupported command: rejected, with the reason.
 4. The router publishes an acknowledgement (accepted or rejected, with reason) and, for missions, a progress message.
 5. The FMS receives the acknowledgement and clears the queued command.
+
+Failed zero application produces a rejected acknowledgement with a reason; cancellation can have completed locally even when stop delivery failed. Motion inhibition remains latched despite goal regeneration, callback recovery or new assignments. Motion source/controller/clock/sink faults also latch inhibition and persistent degraded service health. Each stop event/inhibited motion tick makes at most one zero attempt; a rejected nonzero application can additionally trigger one emergency zero. If the clock fails, the last validated timestamp may stamp that zero with an explicit not-fresh fault detail. Without a valid timestamp, no command is fabricated. See accepted ADR-0007 H1-H3; no software result proves physical stopping.
 
 ## 3. Sensing to obstacle summary
 
