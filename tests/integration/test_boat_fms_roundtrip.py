@@ -11,6 +11,7 @@ from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
 from adapters.simulation.isaac_sim.adapter import IsaacSimAdapter
 from ai_box.bootstrap import build_boat
 from ai_box.config.settings import AIBoxConfig
+from ai_box.core.events import FMS_OUTBOUND, Outbound
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import Detection, SensorKind, SensorSample
 from ai_box.environment.model import SearchArea
@@ -23,7 +24,9 @@ from fms.data.store import InMemoryFleetStore
 from fms.logging.audit import AuditLog
 from fms.missions.service import MissionService as FmsMissionService
 from marine_contracts import (
+    SCHEMA_VERSION,
     BoatStatePayload,
+    ConfigurationUpdatePayload,
     Envelope,
     GeoPosition,
     MessageType,
@@ -32,8 +35,10 @@ from marine_contracts import (
     MissionStatus,
     NavigationGoalPayload,
     OperatingMode,
+    OperationalEventPayload,
     SafeStateAction,
     SafeStateCommandPayload,
+    Severity,
     make_envelope,
 )
 from pydantic import BaseModel
@@ -99,7 +104,17 @@ def test_boat_state_telemetry_reaches_the_fms(world):
 
 
 def test_mission_assignment_is_accepted_and_the_boat_starts_searching(world):
-    world.fms_missions.assign(BOAT, "m-1", MissionAssignmentPayload(objective="find target", search_area_id="area-1"))
+    command = world.fms_missions.assign(
+        BOAT, "m-1", MissionAssignmentPayload(objective="find target", search_area_id="area-1")
+    )
+    assert command.message_type is MessageType.MISSION_ASSIGNMENT
+    assert command.boat_id == BOAT
+    assert command.mission_id == "m-1"
+    assert command.schema_version == SCHEMA_VERSION
+    assert command.timestamp.utcoffset() is not None
+    assert command.timestamp.utcoffset().total_seconds() == 0
+    assert command.sequence_number == 0
+    assert world.outbox.unacknowledged(BOAT) == (command,)
     _deliver_pending_commands(world)
 
     for _ in range(3):
@@ -112,7 +127,203 @@ def test_mission_assignment_is_accepted_and_the_boat_starts_searching(world):
 
     progress = world.store.latest(BOAT, MessageType.MISSION_PROGRESS)
     assert progress is not None and progress.payload.status is MissionStatus.ACCEPTED
+    assert progress.envelope.boat_id == BOAT
+    assert progress.envelope.mission_id == "m-1"
+    assert progress.envelope.schema_version == SCHEMA_VERSION
+    assert progress.envelope.timestamp.utcoffset() is not None
+    assert progress.envelope.timestamp.utcoffset() == timezone.utc.utcoffset(progress.envelope.timestamp)
+    assert progress.envelope.sequence_number >= 0
+    assert any(
+        str(command.message_id) in entry.message
+        and "accepted" in entry.message
+        and "queue cleared=True" in entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack"
+    )
+    assert world.store.latest(BOAT, MessageType.ENVIRONMENT_PROGRESS) is not None
     assert world.outbox.unacknowledged(BOAT) == ()  # the boat's acknowledgement cleared the FMS queue
+
+
+def test_rejected_mission_assignment_is_acknowledged_and_clears_the_fms_queue(world: SimpleNamespace) -> None:
+    command = world.fms_missions.assign(
+        BOAT,
+        "m-unknown-area",
+        MissionAssignmentPayload(objective="find target", search_area_id="missing-area"),
+    )
+    _deliver_pending_commands(world)
+
+    for _ in range(3):
+        world.runtime.app.tick()
+
+    progress = world.store.latest(BOAT, MessageType.MISSION_PROGRESS)
+    assert progress is not None and progress.payload.status is MissionStatus.REJECTED
+    assert progress.envelope.mission_id == "m-unknown-area"
+    assert any(
+        str(command.message_id) in entry.message
+        and "rejected" in entry.message
+        and "queue cleared=True" in entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack"
+    )
+    assert world.runtime.missions.active_mission is None
+    assert world.outbox.unacknowledged(BOAT) == ()
+
+
+def test_fms_routes_a_mission_only_to_its_target_boat(world: SimpleNamespace) -> None:
+    other_boat_id = "boat-02"
+    world.registry.register(BoatIdentity(boat_id=other_boat_id, display_name="Bravo"))
+    position = MockPositionSource()
+    position.set_state(
+        VehicleState(
+            timestamp=NOW,
+            local_position=LocalPoint(1.0, 1.0),
+            geo_position=GeoPosition(latitude_deg=59.4, longitude_deg=18.1),
+        )
+    )
+    other_link = LoopbackFmsLink(server=world.endpoint.receive)
+    other_runtime = build_boat(
+        AIBoxConfig(boat_id=other_boat_id),
+        position=position,
+        propulsion=MockPropulsionSink(),
+        fms_link=other_link,
+        search_areas={"area-1": SearchArea(0.0, 0.0, 20.0, 20.0)},
+    )
+    other_runtime.app.start()
+    try:
+        command = world.fms_missions.assign(
+            other_boat_id, "m-2", MissionAssignmentPayload(objective="find target", search_area_id="area-1")
+        )
+        other_link.deliver([command])
+        for _ in range(3):
+            other_runtime.app.tick()
+
+        assert world.runtime.missions.active_mission is None
+        assert other_runtime.missions.active_mission is not None
+        assert other_runtime.missions.active_mission.mission_id == "m-2"
+        assert world.store.latest(other_boat_id, MessageType.MISSION_PROGRESS) is not None
+        assert world.store.history(BOAT, MessageType.MISSION_PROGRESS) == ()
+        assert world.outbox.unacknowledged(other_boat_id) == ()
+    finally:
+        other_runtime.app.shutdown()
+
+
+def test_boat_rejects_a_mission_addressed_to_another_registered_boat(world: SimpleNamespace) -> None:
+    other_boat_id = "boat-02"
+    world.registry.register(BoatIdentity(boat_id=other_boat_id, display_name="Bravo"))
+    command = world.fms_missions.assign(
+        other_boat_id, "m-2", MissionAssignmentPayload(objective="find target", search_area_id="area-1")
+    )
+    world.link.deliver([command])
+    world.runtime.app.tick()
+
+    assert world.runtime.missions.active_mission is None
+    assert world.runtime.operating.mode is OperatingMode.IDLE
+    assert world.outbox.unacknowledged(other_boat_id) == (command,)
+    status, detail = world.runtime.bridge.health_detail()
+    assert status.value == "degraded"
+    assert "inbound message(s) rejected" in detail
+    assert world.runtime.bridge.pending == 0
+
+
+def test_boat_rejects_boat_originated_message_on_fms_inbound_link(world: SimpleNamespace) -> None:
+    message = make_envelope(
+        boat_id=BOAT,
+        message_type=MessageType.BOAT_STATE,
+        payload=BoatStatePayload(operating_mode=OperatingMode.IDLE),
+        sequence_number=0,
+        timestamp=NOW,
+    )
+    world.link.deliver([message])
+    world.runtime.app.tick()
+
+    status, detail = world.runtime.bridge.health_detail()
+    assert status.value == "degraded"
+    assert "inbound message(s) rejected" in detail
+    assert world.runtime.missions.active_mission is None
+
+
+@pytest.mark.parametrize(
+    ("message_type", "payload"),
+    [
+        (
+            MessageType.CONFIGURATION_UPDATE,
+            ConfigurationUpdatePayload(config_version="v1", parameters={"mode": "test"}),
+        ),
+        (
+            MessageType.SAFE_STATE_COMMAND,
+            SafeStateCommandPayload(action=SafeStateAction.RETURN_HOME, reason="test"),
+        ),
+    ],
+)
+def test_unsupported_commands_are_rejected_with_a_reason(
+    world: SimpleNamespace, message_type: MessageType, payload: BaseModel
+) -> None:
+    command = make_envelope(
+        boat_id=BOAT,
+        message_type=message_type,
+        payload=payload,
+        sequence_number=0,
+        timestamp=NOW,
+    )
+    world.link.deliver([command])
+    world.runtime.app.tick()
+    world.runtime.app.tick()
+
+    acknowledgement = next(
+        entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack" and str(command.message_id) in entry.message
+    )
+    assert "rejected" in acknowledgement
+    assert "queue cleared=False" in acknowledgement
+    assert "not implemented" in acknowledgement
+    assert world.runtime.operating.mode is OperatingMode.IDLE
+    assert world.runtime.motion.goal is None
+
+
+def test_operational_events_and_service_health_reach_the_fms(world: SimpleNamespace) -> None:
+    event = OperationalEventPayload(
+        severity=Severity.WARNING,
+        code="test.integration",
+        message="deterministic event",
+    )
+    world.runtime.app.bus.publish(FMS_OUTBOUND, Outbound(message_type=MessageType.OPERATIONAL_EVENT, payload=event))
+
+    for _ in range(10):
+        world.runtime.app.tick()
+
+    stored_event = world.store.latest(BOAT, MessageType.OPERATIONAL_EVENT)
+    health = world.store.latest(BOAT, MessageType.SERVICE_HEALTH)
+    assert stored_event is not None and stored_event.payload == event
+    assert health is not None
+    assert any(service.name == "fms-bridge" for service in health.payload.services)
+
+
+def test_outbound_buffer_drops_oldest_message_and_flushes_remaining_in_order(world: SimpleNamespace) -> None:
+    world.link.set_online(False)
+    runtime = build_boat(
+        AIBoxConfig(boat_id=BOAT, outbound_buffer_limit=2),
+        position=world.position,
+        propulsion=MockPropulsionSink(),
+        fms_link=world.link,
+    )
+    runtime.app.start()
+    try:
+        for _ in range(3):
+            runtime.app.tick()
+        assert runtime.bridge.pending == 2
+        status, detail = runtime.bridge.health_detail()
+        assert status.value == "degraded"
+        assert "1 outbound message(s) dropped" in detail
+
+        world.link.set_online(True)
+        runtime.bridge.tick()
+
+        history = world.store.history(BOAT, MessageType.BOAT_STATE)
+        assert [message.envelope.sequence_number for message in history] == [1, 2]
+        assert runtime.bridge.pending == 0
+    finally:
+        runtime.app.shutdown()
 
 
 def test_boat_retargets_once_it_reaches_its_goal(world):
@@ -131,7 +342,7 @@ def test_boat_retargets_once_it_reaches_its_goal(world):
 
 
 def test_safe_state_command_stops_propulsion_and_is_acknowledged(world):
-    world.fms_missions.safe_state(BOAT, SafeStateAction.STOP_PROPULSION, reason="test")
+    command = world.fms_missions.safe_state(BOAT, SafeStateAction.STOP_PROPULSION, reason="test")
     _deliver_pending_commands(world)
     world.runtime.app.tick()
     world.runtime.app.tick()
@@ -139,6 +350,37 @@ def test_safe_state_command_stops_propulsion_and_is_acknowledged(world):
     assert world.runtime.operating.mode is OperatingMode.SAFE_STATE
     assert world.sink.last is not None
     assert world.sink.last.thrust == 0.0 and world.sink.last.rudder == 0.0
+    assert any(
+        str(command.message_id) in entry.message and "accepted" in entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack"
+    )
+    assert world.outbox.unacknowledged(BOAT) == ()
+
+
+def test_fms_mission_cancellation_round_trip_is_recorded_and_acknowledged(world: SimpleNamespace) -> None:
+    world.fms_missions.assign(BOAT, "m-1", MissionAssignmentPayload(objective="find target", search_area_id="area-1"))
+    _deliver_pending_commands(world)
+    for _ in range(3):
+        world.runtime.app.tick()
+    assert world.runtime.missions.active_mission is not None
+
+    command = world.fms_missions.cancel(BOAT, "m-1", reason="operator request")
+    _deliver_pending_commands(world)
+    for _ in range(3):
+        world.runtime.app.tick()
+
+    progress = world.store.latest(BOAT, MessageType.MISSION_PROGRESS)
+    assert progress is not None and progress.payload.status is MissionStatus.ABORTED
+    assert progress.envelope.mission_id == "m-1"
+    assert world.runtime.missions.active_mission is None
+    assert any(
+        str(command.message_id) in entry.message
+        and "accepted" in entry.message
+        and "queue cleared=True" in entry.message
+        for entry in world.audit.entries()
+        if entry.category == "ack"
+    )
     assert world.outbox.unacknowledged(BOAT) == ()
 
 
