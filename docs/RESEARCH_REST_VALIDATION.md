@@ -43,17 +43,17 @@ The repository targets at most about 400 changed lines per PR. This work is spli
 
 | Order | Branch | Change |
 |---|---|---|
-| 1 | `docs/docs-research-rest-design` | ADR-0009, responsibilities, protocol, runbook and open questions |
-| 2 | `feat/adapters-rest-reporting-link` | REST `FmsLink`, pure latest-report projection and unit tests |
-| 3 | `feat/adapters-research-http-api` | Injected loopback HTTP API and validation tests |
-| 4 | `feat/fms-research-mock-producers` | Server composition, two mock runtimes and actual HTTP round trips |
-| 5 | `feat/fms-research-source-profile` | Explicit source selection, connection display and GET-only proxy |
-| 6 | `feat/fms-decode-research-reports` | Wire validation and a view-only compatibility adapter |
-| 7 | `feat/fms-read-research-fleet` | Read-only research fleet controller and isolation tests |
-| 8 | `feat/fms-present-research-boat` | Existing panel presents received values and unsupported controls |
-| 9 | `feat/fms-chart-received-positions` | Existing chart uses received positions |
-| 10 | `feat/fms-connect-research-dashboard` | Research polling, page states and unavailable feature presentation |
-| 11 | `feat/fms-research-rest-integration` | Presentation tests, live end-to-end test and explicit research commands |
+| [#16](https://github.com/Hami0095/intelligent-boats/pull/16) | `docs/docs-research-rest-design` | ADR-0009, responsibilities, protocol, runbook and open questions |
+| [#17](https://github.com/Hami0095/intelligent-boats/pull/17) | `feat/adapters-rest-reporting-link` | REST `FmsLink`, pure latest-report projection and unit tests |
+| [#18](https://github.com/Hami0095/intelligent-boats/pull/18) | `feat/adapters-research-http-api` | Injected loopback HTTP API and validation tests |
+| [#19](https://github.com/Hami0095/intelligent-boats/pull/19) | `feat/fms-research-mock-producers` | Server composition, two mock runtimes and actual HTTP round trips |
+| [#20](https://github.com/Hami0095/intelligent-boats/pull/20) | `feat/fms-research-source-profile` | Explicit source selection, connection display and GET-only proxy |
+| [#21](https://github.com/Hami0095/intelligent-boats/pull/21) | `feat/fms-decode-research-reports` | Wire validation and a view-only compatibility adapter |
+| [#22](https://github.com/Hami0095/intelligent-boats/pull/22) | `feat/fms-read-research-fleet` | Read-only research fleet controller and isolation tests |
+| [#23](https://github.com/Hami0095/intelligent-boats/pull/23) | `feat/fms-present-research-boat` | Existing panel presents received values and unsupported controls |
+| [#24](https://github.com/Hami0095/intelligent-boats/pull/24) | `feat/fms-chart-received-positions` | Existing chart uses received positions |
+| [#25](https://github.com/Hami0095/intelligent-boats/pull/25) | `feat/fms-connect-research-dashboard` | Research polling, page states and unavailable feature presentation |
+| [#26](https://github.com/Hami0095/intelligent-boats/pull/26) | `feat/fms-research-rest-integration` | Presentation tests, live end-to-end test and explicit research commands |
 
 ## Changed files and responsibilities
 
