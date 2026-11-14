@@ -64,13 +64,16 @@ def test_search_coverage_marks_region_searched():
     assert knowledge.unsearched([region]) == []
 
 
-def test_observations_of_objects_do_not_change_search_status():
+def test_observed_region_is_distinct_from_visited_and_searched():
     grid = GridIndexer()
     knowledge = InMemoryEnvironmentKnowledge(grid)
     knowledge.record(obs(ObservationKind.OBSERVED, 5, 5))
     region = grid.region_of(LocalPoint(5, 5))
-    assert knowledge.region(region).status is RegionStatus.UNKNOWN
+    assert knowledge.region(region).status is RegionStatus.OBSERVED
     assert knowledge.region(region).observation_count == 1
+    assert knowledge.region(region).visit_count == 0
+    assert knowledge.region(region).search_count == 0
+    assert knowledge.unsearched([region]) == [region]
 
 
 def test_coverage_is_the_searched_fraction_of_candidates():

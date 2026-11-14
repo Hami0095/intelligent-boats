@@ -15,6 +15,7 @@ from ai_box.memory.persistent import InMemoryStore, PersistentStore
 
 class RegionStatus(str, Enum):
     UNKNOWN = "unknown"
+    OBSERVED = "observed"  # something of interest was seen, but the region was not necessarily visited or searched
     VISITED = "visited"  # travelled through, but no search coverage recorded
     SEARCHED = "searched"
 
@@ -81,6 +82,8 @@ class InMemoryEnvironmentKnowledge:
             status = RegionStatus.SEARCHED
         elif agg.visit_count:
             status = RegionStatus.VISITED
+        elif agg.observation_count:
+            status = RegionStatus.OBSERVED
         else:
             status = RegionStatus.UNKNOWN
         return RegionRecord(

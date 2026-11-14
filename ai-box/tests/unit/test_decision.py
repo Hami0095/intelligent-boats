@@ -49,6 +49,21 @@ def test_policy_prefers_never_visited_regions_over_visited_ones():
     assert GRID.region_of(intent.target) != GRID.region_of(near_visited)
 
 
+def test_policy_treats_observed_only_regions_as_never_visited():
+    current = GRID.region_of(LocalPoint(5, 5))
+    nearby_observed = GRID.region_of(LocalPoint(15, 5))
+    distant_unknown = GRID.region_of(LocalPoint(35, 5))
+    knowledge = _knowledge((ObservationKind.OBSERVED, LocalPoint(15, 5)))
+    state = DecisionState(
+        position=LocalPoint(5, 5),
+        safety_clear=True,
+        candidate_regions=[current, nearby_observed, distant_unknown],
+    )
+    intent = UnsearchedRegionPolicy().next_intent(state, knowledge, GRID)
+    assert intent is not None
+    assert GRID.region_of(intent.target) == nearby_observed
+
+
 def test_policy_returns_nothing_once_everything_is_searched():
     everything = [(ObservationKind.SEARCHED, GRID.center_of(r)) for r in AREA]
     intent = UnsearchedRegionPolicy().next_intent(_state(LocalPoint(5, 5)), _knowledge(*everything), GRID)
