@@ -1,11 +1,13 @@
 # AI Box navigation controller: design and readiness assessment
 
-**Status:** PROPOSED; design only, no controller or runtime changes.
+**Status:** PROPOSED; no waypoint controller or autonomous-navigation wiring.
 **Reviewed baseline:** `4c24162` (refreshed `origin/main`).
 
 This is the historical assessment of that baseline. The human subsequently accepted ADR-0007 H1-H3 for stop/fault hardening only. The capability and diagnostic sections below describe the pre-hardening code; current stop semantics are documented in `DATA_FLOW.md` and the AI Box module guidance. Navigation implementation and its remaining proposals have not been approved by that subset decision.
 
-Recommendation: close the motion stop/fault-handling gaps before using nonzero output in the assembled runtime. Then add a stateless, explicitly injected local waypoint reference controller. Its initial claim is bounded command generation from declared mock inputs, not physical navigation performance or deployment safety. The zero-command controller remains the default.
+**Current readiness:** ADR-0007 remains PROPOSED; only H1-H3 stop/fault hardening is accepted. An isolated `MockVessel` adapter provides explicit-step test infrastructure with declared synthetic parameters, but no nonzero waypoint controller is implemented or wired. Local frame/heading, controller parameters and timing, state freshness, arrival and speed-cap policies remain unresolved under OPEN_DECISIONS #4, #5, #11, #14, #23, #25 and #26. Autonomous closed-loop navigation is therefore blocked.
+
+Recommendation: keep the zero-command controller as the default. H1-H3 stop/fault hardening is accepted, but nonzero waypoint control remains blocked until the open frame, state-validity, timing, command and arrival decisions are resolved. After approval, add a stateless, explicitly injected local waypoint controller and test it first against mock inputs; do not imply physical navigation performance or deployment safety.
 
 ## 1. Existing capabilities and limitations
 
@@ -17,7 +19,7 @@ Recommendation: close the motion stop/fault-handling gaps before using nonzero o
 | Exploration | Prefers never-visited unsearched regions, then nearest, excluding the current region | A reference target-selection policy, not route planning, collision avoidance, or completion logic |
 | Models | Local positions in metres, optional heading/speed, goal radius, normalised commands | Frame/heading/rudder conventions are unresolved; some numeric validation is incomplete |
 | Runtime | Dependency-ordered startup, cooperative ticks, reverse shutdown, health reporting | Caller supplies scheduling; tick exceptions are logged and isolated, without automatic zero output |
-| Mocks | A position source holds assigned states; a propulsion sink records commands | Neither mock models movement, steering, inertia, braking, or command expiry |
+| Mocks | Position and propulsion recording adapters; an isolated `MockVessel` responds to one command per explicit step using supplied mock-only parameters | The model is not realistic, scheduled, or wired by default; it does not establish navigation convergence, braking, or physical command semantics |
 
 Source entry points: [bootstrap](../ai-box/src/ai_box/bootstrap.py), [controller](../ai-box/src/ai_box/motion/controller.py), [motion service](../ai-box/src/ai_box/motion/service.py), [mission](../ai-box/src/ai_box/decision/mission.py), [policy](../ai-box/src/ai_box/decision/policy.py), [manager](../ai-box/src/ai_box/core/manager.py).
 
@@ -107,9 +109,9 @@ Geographic position, measured speed and uncertainty are not required to evaluate
 
 ## 5. Testing with existing mocks
 
-Use `MockPositionSource.set_state(...)`, `MockPropulsionSink.commands`, fixed aware timestamps and `MotionService(..., clock=...)`. Supply a goal, tick motion, and inspect the recorded command. Change the state and verify recomputation rather than reuse of an earlier command. No hardware, simulator or new dependency is needed.
+Use `MockPositionSource.set_state(...)`, `MockPropulsionSink.commands`, fixed aware timestamps and `MotionService(..., clock=...)` to test command generation. The separate `MockVessel` adapter can verify that explicitly supplied commands update a synthetic state only when `step(duration_s)` is called. No AI Box navigation controller generates those commands, and this test does not demonstrate autonomous travel.
 
-Use a scripted sequence of states outside, approaching, at and inside the radius to test feedback mapping and arrival. Explicitly state that the test supplied this trajectory: commands did not cause the motion. Do not add a toy boat dynamics model or claim this demonstrates autonomous travel.
+Scripted state sequences may test proposed controller behavior only after its design is approved. The mock vessel model is limited to deterministic adapter tests; it does not resolve controller feedback, arrival semantics or production physics. Do not describe its direct-command response as autonomous navigation.
 
 Controller tests belong in `ai-box/tests/unit/`; stop/mission/FMS interactions belong in `tests/integration/`. Reuse the existing mocks without modifying their responsibilities. A deliberately nonzero test double should expose motion-inhibition failures independently of any navigation algorithm.
 
