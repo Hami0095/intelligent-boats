@@ -12,12 +12,21 @@
 
 **STATUS: PROPOSED.** Isaac Sim is only reachable through `adapters/src/adapters/simulation/isaac_sim/`.
 
-Plan:
+What exists now:
 
-1. Implement `IsaacSimAdapter` so that it provides simulated sensor samples and applies propulsion commands. It replaces the placeholder that raises `NotImplementedError`.
-2. Run the AI Box unchanged, with the Isaac Sim adapter in place of the hardware adapters.
-3. Keep Isaac Sim imports out of every other package. `tests/contracts/test_boundaries.py` enforces this.
-4. Run the simulator scenarios as integration tests, outside the default unit suite, because they need the simulator installed. Their setup is OPEN.
+- `IsaacSimAdapter` implements the sensor, position and propulsion ports on top of a `SimulatorBackend` protocol (`backend.py`). It imports no simulator code.
+- Without a backend, every call raises `SimulatorUnavailableError`. The AI Box reports the sensor as degraded and keeps running.
+- `isaac_backend.py` is the only module that imports `isaacsim`. `open_isaac_backend(usd_path)` starts the simulator headless. It raises `SimulatorUnavailableError` when `isaacsim` is missing.
+- Reading the boat pose and writing commands in the real backend are NOT implemented yet. They raise `SimulatorUnavailableError` with an explicit message. They need the CAD boat asset and the articulation API of the installed Isaac Sim version.
+- Tests use a fake backend (`adapters/tests/test_isaac_sim_adapter.py`) and run without a simulator.
+
+Next steps:
+
+1. Set `AIBOX_SIM_USD_PATH` to the CAD boat asset, once it is available.
+2. Implement pose reading and command writing in `IsaacSimBackend` against the installed Isaac Sim version.
+3. Run the AI Box unchanged, with the Isaac Sim adapter in place of the hardware adapters. Pass the adapter as both `sensors` and `position`.
+4. Keep Isaac Sim imports out of every other package. `tests/contracts/test_boundaries.py` enforces this, with the exemption in ADR-0009.
+5. Run the simulator scenarios as integration tests, outside the default unit suite, because they need the simulator installed.
 
 The simulator version, licensing, host requirements and how the CAD model is imported are OPEN (`OPEN_DECISIONS.md`).
 

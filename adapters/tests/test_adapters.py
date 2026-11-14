@@ -4,7 +4,7 @@ import pytest
 from adapters.fms.loopback import LoopbackFmsLink
 from adapters.propulsion.mock import MockPropulsionSink
 from adapters.sensors.mock import MockPositionSource, MockSensorAdapter
-from adapters.simulation.isaac_sim import IsaacSimAdapter
+from adapters.simulation.isaac_sim import IsaacSimAdapter, SimulatorUnavailableError
 from ai_box.core.geometry import LocalPoint
 from ai_box.core.ports import SensorKind, SensorSample
 from ai_box.motion.commands import PropulsionCommand, VehicleState
@@ -70,10 +70,11 @@ def test_loopback_link_returns_server_replies_once():
     assert link.receive() == []
 
 
-def test_isaac_sim_placeholder_fails_loudly_and_never_pretends_to_work():
+def test_isaac_sim_adapter_without_backend_fails_loudly_and_never_pretends_to_work():
     adapter = IsaacSimAdapter("front-camera")
     assert adapter.sensor_id == "front-camera"
-    with pytest.raises(NotImplementedError, match="Isaac Sim"):
+    assert adapter.is_available is False
+    with pytest.raises(SimulatorUnavailableError, match="not connected"):
         adapter.poll()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(SimulatorUnavailableError):
         adapter.apply(PropulsionCommand.stop(T0))

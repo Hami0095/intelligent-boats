@@ -9,8 +9,8 @@ Isaac Sim is the final simulation and demonstration environment. It is not the d
 ## Decision
 
 - Isaac Sim imports exist only in `adapters/src/adapters/simulation/isaac_sim/`.
-- No other package may import a simulator. This is enforced by `tests/contracts/test_boundaries.py`.
-- The current adapter is a placeholder that raises `NotImplementedError`.
+- No other package may import a simulator. This is enforced by `tests/contracts/test_boundaries.py`, with the simulator-folder exemption in ADR-0009.
+- The adapter talks to the simulator only through a `SimulatorBackend` protocol. Without a backend it raises `SimulatorUnavailableError`, and the AI Box reports the sensor as degraded.
 
 ## Consequences
 
