@@ -7,7 +7,7 @@
 | `ai-box` config, health | Settings from `AIBOX_*` variables; health aggregation | Read files or networks | interfaces |
 | `ai-box` services | Sensor ingest, FMS bridge (sole FMS I/O), command router | Build envelopes for FMS-facing messages outside the bridge; touch devices | core, interfaces |
 | `ai-box` perception | Detections, summaries, tracking interface | Estimate risk without a validated estimator; use semantic labels for decisions | core, interfaces |
-| `ai-box` environment | Region indexing, observations, search status | Depend on a particular mapping algorithm | memory (persistence interface) |
+| `ai-box` environment | Region indexing, typed observations, accepted mock observation ingress, search status | Depend on a particular mapping algorithm; infer semantic observations from collision detections | core, memory (persistence interface) |
 | `ai-box` memory | Records with timestamp, provenance, confidence; mission memory; persistence interface | Treat old data as current | interfaces |
 | `ai-box` decision | Mission lifecycle, exploration policy, reward interface | Hardcode an RL algorithm or reward function; steer the boat directly | environment, motion |
 | `ai-box` motion | Goals, vehicle state, normalised commands, control interface, latched stop/fault inhibition and truthful command-delivery records | Know about hardware specifications; rearm an inhibited instance | core |

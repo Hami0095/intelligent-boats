@@ -1,7 +1,8 @@
 """Runs one mock boat against the FMS for a few control cycles and prints what the FMS received.
 
-Usage (from the repository root):  python scripts/demo_mock_boat.py
-Works from a source checkout without installing the packages.
+Usage (from the repository root):  .venv/bin/python -m scripts.demo_mock_boat
+Project packages are loaded from source; runtime dependencies must be installed
+in the selected interpreter's environment.
 """
 
 from __future__ import annotations

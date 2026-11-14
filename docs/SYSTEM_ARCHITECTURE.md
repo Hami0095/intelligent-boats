@@ -57,9 +57,18 @@ Position source -> VehicleState -> search-mission
                        exploration policy (unsearched, prefer never-visited, nearest)
                                      |
                               NavigationGoal -> motion
+
+SensorSource -> sensor-ingest -> sensor.sample
+                                    |
+                       mock observation normalizer
+                          (OTHER sample only)
+                                    |
+                   environment.observation (typed)
+                                    |
+                       environment knowledge
 ```
 
-A visit does not count as a search. Only a SEARCHED observation changes a region to searched. How search coverage is measured is OPEN.
+A visit does not count as a search, and an OBSERVED record does not count as a visit or search. The accepted mock normalizer uses an explicitly supplied local point; it does not infer observations from collision perception or raw camera/range data. Only an explicit SEARCHED observation changes a region to searched. How production sensor evidence and search coverage are derived remains OPEN (decisions 33 and 7).
 
 ## Motion and propulsion data flow
 
