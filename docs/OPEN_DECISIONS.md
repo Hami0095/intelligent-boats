@@ -4,7 +4,7 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 
 | # | Decision | Status | Foundation behaviour meanwhile | Needs input from |
 |---|---|---|---|---|
-| 1 | Transport between boat and FMS (MQTT, WebSocket, ROS 2 bridge, other) | OPEN | `FmsLink` protocol; in-process loopback only | Communications, FMS |
+| 1 | Production transport between boat and FMS (MQTT, WebSocket, ROS 2 bridge, other) | Production OPEN; research REST subset ACCEPTED | Existing `FmsLink` has in-process loopback and an opt-in standard-library REST adapter for the explicitly requested local research prototype (ADR-0009); no production transport choice | Communications, FMS |
 | 2 | FMS database technology, and which data is stored where | OPEN | In-memory store; boat data kept as received | FMS, data |
 | 3 | Ownership of boat-originated data after it reaches the FMS (retention, correction, deletion) | OPEN | Store keeps everything in memory; nothing is persisted | FMS, data |
 | 4 | Local frame origin and axes, and the geographic-to-local transform | OPEN | Position is held in local metres; geographic goals are rejected | Motion, localisation |
@@ -37,6 +37,12 @@ Each entry says what is undecided, why it matters, what the foundation does mean
 | 31 | Whether loss of FMS communication should trigger a motion safe-state, and what reconnection permits | OPEN | A send failure with buffered output reports degraded bridge health and buffers/drops messages per current rules; the bridge does not maintain an explicit connection state. Link loss does not change motion mode or inhibition. Existing inhibition survives reconnection, but no new loss-triggered stop policy is implemented | Motion, integration, operations |
 | 32 | Whether FMS should deduplicate ACK envelope IDs and reject conflicting reuse | OPEN | Identical repeated ACKs do not change queue state after the first ACK, but ACK envelope IDs are not tracked; a reused ID with a different payload is not detected | FMS, communications |
 | 33 | Production sensor evidence and localization for `OBSERVED` records | OPEN | The mock-only typed ingress and `SensorKind.OTHER` payload are accepted in [ADR-0008](decisions/ADR-0008-typed-environment-observation-ingress.md). They accept an already-normalized local point; no real camera/range semantic interpretation or localization is defined. `SEARCHED` remains governed separately by #7 | Perception, environment, integration, system architect |
+| 34 | Remote research hosting, read routing and access restrictions for message ingestion | OPEN | The research HTTP server binds loopback only; the local dashboard proxies GET reads only. No remote backend/project/URL, public ingestion, credentials or production deployment is configured | Communications, hosting, security |
+| 35 | Dashboard parity for remote commands, delivery, temperature and geographic coverage geometry | OPEN | Research is reporting-only and labels unsupported features unavailable. It shows only received positions/progress/health; independent geographic fixtures in the mock producer establish no local-to-GPS transform or new sensor capability | FMS, mission owners, frontend |
+
+## Research REST milestone
+
+[ADR-0009](decisions/ADR-0009-research-rest-reporting.md) records the explicitly requested research-only transport and dashboard source separation. Main remains the standalone browser simulation; research uses received Python AI Box reports, with no random fallback. In-memory storage, production transport/authentication, durable delivery and command dispatch remain unresolved under the existing entries above. The [run guide](RESEARCH_REST_INTEGRATION.md) defines only local development configuration and manual remote setup requirements.
 
 ## Navigation milestone proposals
 

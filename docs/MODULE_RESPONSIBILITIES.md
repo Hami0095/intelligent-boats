@@ -12,8 +12,9 @@
 | `ai-box` decision | Mission lifecycle, exploration policy, reward interface | Hardcode an RL algorithm or reward function; steer the boat directly | environment, motion |
 | `ai-box` motion | Goals, vehicle state, normalised commands, control interface, latched stop/fault inhibition and truthful command-delivery records | Know about hardware specifications; rearm an inhibited instance | core |
 | `ai-box` telemetry | Boat state and health messages | Choose the transport | core, interfaces |
-| `fms` | Boat identities, inbound endpoint, outbox, mission dispatch, stored boat data, audit | Import AI Box internals; own boat-internal state | interfaces |
-| `adapters` | Device, network and simulator implementations of ports | Be imported by the AI Box or the FMS | ai-box ports, interfaces |
+| `fms` | Boat identities, inbound endpoint, outbox, mission dispatch, stored boat data, audit, pure research latest-message projection | Import AI Box internals or adapters; perform HTTP I/O; invent missing data | interfaces |
+| `adapters` | Device, network and simulator implementations of ports; research REST link and loopback HTTP server behind an injected application protocol | Be imported by the AI Box or the FMS; import FMS implementation | ai-box ports, interfaces |
+| `fleet-dashboard` | Existing main simulation and explicit research REST read/view mode | Generate fallback telemetry in research; infer geographic positions or unsupported features | existing frontend tooling; research read API |
 | `tests` | Contract, boundary and integration tests | Test against real hardware or simulators | all |
 
 Ownership of each module, for review purposes, is in `agents/MODULE_OWNERSHIP.md`.

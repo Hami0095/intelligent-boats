@@ -34,6 +34,8 @@ The AI Box is the onboard software environment: a set of independent **Services*
 
 The FMS is separate from the AI Box and talks only to boats, through `marine_contracts` envelopes. It manages boat identities, stores boat-originated data, queues commands with acknowledgement tracking and keeps an audit log. It does not implement a dashboard, optimiser or production backend yet. Database technology and ownership of stored data are OPEN decisions (`docs/OPEN_DECISIONS.md`).
 
+`fleet-dashboard/` contains the separate main browser simulation. The research-only REST reporting path in ADR-0009 reuses its visual components and actual received FMS envelopes through a pure FMS data facade and injected HTTP adapter. Main remains simulation by default, and no production deployment or transport choice follows from the research prototype. See `docs/RESEARCH_REST_INTEGRATION.md`.
+
 ## Why Isaac Sim is only a final integration environment
 
 NVIDIA Isaac Sim is used for the final simulation and demonstration. It is **not** our development environment, **not** the runtime architecture and **not** a dependency of the core software. Simulator code exists only in `adapters/src/adapters/simulation/isaac_sim/`. `tests/contracts/test_boundaries.py` fails the build if any core package imports a simulator.
