@@ -17,6 +17,8 @@ This repository is shared by several engineers and their AI tools. Conversation 
 
 ## Quick map
 
+- Research mock-report demos compose existing AI-box adapters and telemetry with the Python FMS through the existing loopback protocol; FMS output must project received envelopes only, never manufacture a second mock dataset. Why: proves AI-box-to-FMS source fidelity without changing transport or core module ownership.
+
 | Question | Read |
 |---|---|
 | What is the system? | `docs/SYSTEM_OVERVIEW.md` |
