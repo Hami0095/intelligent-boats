@@ -67,3 +67,25 @@ The separately selected live integration test requires the repository Python vir
 The default source is a standalone simulation, not a connection to real AI boxes. Fleet state, search coverage and trails reset on reload; delivery history alone survives in browser storage. Chart shading is a simulated visited-cell estimate, not verified sensor coverage. Temperature values come from a simulated spatial field, not a waterproof sensor, and are labeled as simulation in the interface. These simulated records and browser delivery history are not loaded by the research source.
 
 Research connects reporting through the Python AI Boxes' existing FmsLink boundary and FMS received-message storage. It does not add a dashboard command transport. The browser simulator's delivery, home-return, temperature and coverage features must not be assumed to exist onboard. Operational recovery, authenticated boat identity, durable transport/storage and production navigation remain separate decisions.
+
+
+## Connecting a real AI box
+
+The dashboard exposes an HTTP relay at `/api/public/fms-link` and this repo now ships a matching Python adapter, `adapters/src/adapters/fms/http_link.py` (`HttpFmsLink`), which implements the existing `FmsLink` send/receive protocol — plug it into `FmsBridgeService` in place of the loopback link:
+
+```python
+from adapters.fms.http_link import HttpFmsLink
+
+link = HttpFmsLink(
+    base_url="https://<your-dashboard-host>",
+    boat_id="usv-05",
+    token="<FMS_LINK_TOKEN>",
+)
+```
+
+- `send` POSTs one boat-originated envelope; `receive` GETs and drains the FMS commands waiting for that boat. Both raise `ConnectionError` while unreachable, as the bridge expects.
+- Every request carries `Authorization: Bearer <token>`; the token must match the dashboard's `FMS_LINK_TOKEN` secret. Calls without it are rejected.
+- A boat is registered by the dashboard on first contact and labeled as a real AI-box connection, with last-update time and the 10-second stale-data warning.
+- The relay is an in-memory mailbox per server process: messages are lost on restart and while the dashboard tab is closed. This is a hackathon demo link, not durable transport.
+
+This restored dashboard-hosted HTTP relay is separate from the read-only Python REST reporting design documented above. It does not implement or replace that design, and it does not verify real AI-box or physical boat operation. The existing browser simulator still operates; dashboard delivery and return-home behavior must not be assumed to exist onboard.
